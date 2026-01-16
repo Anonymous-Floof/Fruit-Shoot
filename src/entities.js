@@ -1,6 +1,7 @@
 import { WEAPON_TYPES } from './config.js';
 import { GameState, c, canvas } from './state.js';
 import { UIManager } from './ui.js';
+import { Settings } from './settings.js';
 
 export class Player {
     constructor(startX, startY) {
@@ -145,7 +146,7 @@ export class Player {
                         const angle = Math.atan2(e.y - this.y, e.x - this.x);
                         e.takeHit(this.bladeDamage, 2, angle); // Slightly more knockback
                         // FIXED: Adjusted Y offset (-30) to show above enemy
-                        GameState.damageNumbers.push(new DamageText(e.x, e.y - 30, this.bladeDamage, '#b2bec3'));
+                        addDamageNumber();
                     }
                 }
 
@@ -499,7 +500,7 @@ export class Enemy {
             if (this.burnDamageTimer >= burnInterval) {
                 this.burnDamageTimer -= burnInterval;
                 this.hp -= 5;
-                GameState.damageNumbers.push(new DamageText(this.x, this.y - 20, 5, '#ff6b6b'));
+                addDamageNumber();
             }
         }
 

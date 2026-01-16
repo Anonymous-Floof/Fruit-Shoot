@@ -4,6 +4,7 @@ import { ENEMY_TYPES } from './config.js';
 import { UIManager } from './ui.js';
 import { checkAchievements, getAchievementStats } from './achievements.js';
 import { Progression } from './progression.js';
+import { Settings } from './settings.js';
 
 let lastTime = 0;
 let enemySpawnTimer = 0;
@@ -63,6 +64,13 @@ function createExplosion(x, y, color, count) {
     }
 }
 
+// PHASE 3: Helper to add damage numbers (checks settings)
+function addDamageNumber(x, y, amount, color = '#fff') {
+    if (Settings.get('damageNumbers')) {
+        addDamageNumber();
+    }
+}
+
 export function initGame() {
     GameState.reset();
     GameState.player = new Player(canvas.width / 2, canvas.height / 2);
@@ -115,7 +123,8 @@ function animate() {
 
     // Apply screen shake offset
     c.save();
-    if (GameState.screenShake.intensity > 0) {
+    // PHASE 3: Check settings before applying screen shake
+    if (GameState.screenShake.intensity > 0 && Settings.get('screenShake')) {
         const shakeX = (Math.random() - 0.5) * GameState.screenShake.intensity;
         const shakeY = (Math.random() - 0.5) * GameState.screenShake.intensity;
         c.translate(shakeX, shakeY);
@@ -454,7 +463,7 @@ function animate() {
                     if (nearby !== enemy && Math.hypot(nearby.x - enemy.x, nearby.y - enemy.y) < 100) {
                         const chainDamage = 30;
                         nearby.takeHit(chainDamage, 3, Math.atan2(nearby.y - enemy.y, nearby.x - enemy.x));
-                        GameState.damageNumbers.push(new DamageText(nearby.x, nearby.y - 20, chainDamage, '#ff6b6b'));
+                        addDamageNumber();
                     }
                 });
             }
