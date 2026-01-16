@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fruit Shoot! Modular</title>
+    <link rel="stylesheet" href="style.css?v=4">
+</head>
+
+<body>
+
+    <div class="score-hud">
+        <span id="scoreEl">0</span> L
+        <span class="enemy-count">Fresh Fruit: <span id="targetCount">0</span></span>
+    </div>
+
+    <div id="bossHud">
+        <div id="bossName">Dragon Fruit Overlord</div>
+        <div class="bar-container">
+            <div class="bar-fill" id="bossBarFill"></div>
+        </div>
+    </div>
+
+    <div class="stats-hud">
+        LVL: <span id="lvlEl">1</span><br>
+        DMG: <span id="dmgEl">10</span><br>
+        RPM: <span id="rpmEl">0</span><br>
+        EVA: <span id="evaEl">0%</span><br>
+        PROJ: <span id="projEl">1</span>
+    </div>
+
+    <div id="hud">
+        <div class="bar-container">
+            <div class="bar-fill" id="hpBar"></div>
+            <div class="bar-text">INTEGRITY: <span id="hpText">100/100</span></div>
+        </div>
+        <div class="bar-container" style="height: 12px; margin-top: 8px;">
+            <div class="bar-fill" id="xpBar"></div>
+            <div class="bar-text" style="font-size: 0.6rem;">VITAMINS</div>
+        </div>
+
+        <!-- PHASE 2: Dash Cooldown Indicator -->
+        <div id="dashIndicator" class="dash-indicator ready">
+            <svg width="40" height="40" viewBox="0 0 40 40">
+                <circle cx="20" cy="20" r="16" fill="none" stroke="#333" stroke-width="3" />
+                <circle id="dashCooldownFill" cx="20" cy="20" r="16" fill="none" stroke="#55efc4" stroke-width="3"
+                    stroke-dasharray="100" stroke-dashoffset="0" transform="rotate(-90 20 20)" />
+            </svg>
+            <div class="dash-key">SPACE</div>
+        </div>
+    </div>
+
+    <div id="uiLayer">
+        <div id="mainMenu" class="modal">
+            <h1 id="mainTitle">FRUIT SHOOT!</h1>
+
+            <!-- Main Menu Buttons -->
+            <div id="menuButtons">
+                <p id="finalScore" class="hidden" style="font-size: 2rem; color: var(--xp); margin-top: 20px;">Yield: 0
+                    Liters</p>
+                <button class="btn" id="startBtn">START BLENDING</button>
+                <div class="menu-secondary-actions"
+                    style="margin-top: 20px; display: flex; gap: 15px; justify-content: center;">
+                    <button class="secondary-btn" id="menuAchievementsBtn">Achievements</button>
+                    <button class="secondary-btn" id="menuSettingsBtn"
+                        style="border-color: #ff4757; color: #ff6b6b;">Settings</button>
+                </div>
+                <p style="font-size: 1rem; color: #666; margin-top: 30px;">WASD to Move | Hold Click to Blend | TAB to
+                    Pause</p>
+            </div>
+
+            <!-- Achievements View (Hidden by default) -->
+            <div id="menuAchievements" class="hidden">
+                <h2 style="color: var(--primary); margin-bottom: 20px;">ACHIEVEMENTS</h2>
+                <div id="mainMenuAchievementsList" class="achievements-list" style="max-height: 400px;"></div>
+                <button class="secondary-btn" id="backFromAchievementsBtn" style="margin-top: 20px;">Back</button>
+            </div>
+
+            <!-- Settings View (Hidden by default) -->
+            <div id="menuSettings" class="hidden">
+                <h2 style="color: #ff4757; margin-bottom: 20px;">SETTINGS</h2>
+                <div class="setting-item" style="margin-bottom: 30px;">
+                    <p style="color: #ccc; margin-bottom: 10px;">Reset all game progress (Achievements, Stats, Unlocks).
+                    </p>
+                    <p style="color: #ff4757; font-weight: bold; margin-bottom: 15px;">⚠️ THIS CANNOT BE UNDONE ⚠️</p>
+                    <button class="btn" id="resetProgressBtn"
+                        style="font-size: 1rem; padding: 10px 30px; background: #c0392b;">RESET PROGRESS</button>
+                </div>
+                <button class="secondary-btn" id="backFromSettingsBtn">Back</button>
+            </div>
+        </div>
+
+        <div id="pauseModal" class="modal hidden">
+            <h1 style="color: #fff; text-shadow: none;">PAUSED</h1>
+            <div id="pauseContent"></div>
+            <button class="btn" id="resumeBtn">Resume</button>
+        </div>
+
+        <div id="upgradeModal" class="modal hidden">
+            <h1 id="upgradeTitle" style="font-size: 3rem; color: var(--xp); text-shadow: 3px 3px 0 #000;">UPGRADE
+                BLENDER</h1>
+            <div id="upgradeContainer"></div>
+            <div id="modalControls"></div>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <!-- The Module Entry Point -->
+    <script type="module" src="./src/main.js?v=4"></script>
+</body>
+
+</html>
