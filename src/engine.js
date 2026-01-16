@@ -1,5 +1,5 @@
 import { GameState, c, canvas } from './state.js';
-import { Player, Enemy, Boss, Particle, DamageText, ExpOrb, EnemyProjectile } from './entities.js';
+import { Player, Enemy, Boss, MelonMonarch, CitrusKing, BerryBaron, Particle, DamageText, ExpOrb, EnemyProjectile } from './entities.js';
 import { ENEMY_TYPES } from './config.js';
 import { UIManager } from './ui.js';
 import { checkAchievements, getAchievementStats } from './achievements.js';
@@ -15,7 +15,12 @@ let lastAchievementCheck = 0;
 export function spawnBoss() {
     if (GameState.activeBoss) return;
     const x = canvas.width / 2; const y = -100;
-    const boss = new Boss(x, y);
+
+    // PHASE 3: Random boss selection
+    const bossTypes = [Boss, MelonMonarch, CitrusKing, BerryBaron];
+    const BossClass = bossTypes[Math.floor(Math.random() * bossTypes.length)];
+    const boss = new BossClass(x, y);
+
     GameState.enemies.push(boss);
     GameState.activeBoss = boss;
     UIManager.updateHud();
@@ -178,6 +183,93 @@ function animate() {
         }
     }
 
+    // PHASE 3: Update acid pools (Citrus King)
+    if (GameState.acidPools) {
+        for (let i = GameState.acidPools.length - 1; i >= 0; i--) {
+            const pool = GameState.acidPools[i];
+            pool.timer -= dt;
+            if (pool.timer <= 0) {
+                GameState.acidPools.splice(i, 1);
+            } else {
+                // Draw acid pool
+                c.beginPath();
+                c.arc(pool.x, pool.y, pool.radius, 0, Math.PI * 2);
+                c.fillStyle = 'rgba(212, 172, 13, 0.4)';
+                c.fill();
+                c.strokeStyle = pool.color;
+                c.lineWidth = 2;
+                c.stroke();
+
+                // Damage player if standing in pool
+                const dist = Math.hypot(GameState.player.x - pool.x, GameState.player.y - pool.y);
+                if (dist < pool.radius + GameState.player.radius) {
+                    if (Math.random() < 0.1) { // 10% chance per frame to deal damage
+                        GameState.player.takeDamage(pool.damage);
+                    }
+                }
+            }
+        }
+    }
+
+    // PHASE 3: Update berry walls (Berry Baron)
+    if (GameState.berryWalls) {
+        for (let i = GameState.berryWalls.length - 1; i >= 0; i--) {
+            const wall = GameState.berryWalls[i];
+            wall.timer -= dt;
+            if (wall.timer <= 0) {
+                GameState.berryWalls.splice(i, 1);
+            } else {
+                // Draw berry wall
+                c.beginPath();
+                c.arc(wall.x, wall.y, wall.radius, 0, Math.PI * 2);
+                c.fillStyle = wall.color;
+                c.fill();
+                c.strokeStyle = '#8e44ad';
+                c.lineWidth = 2;
+                c.stroke();
+
+                // Damage player on contact
+                const dist = Math.hypot(GameState.player.x - wall.x, GameState.player.y - wall.y);
+                if (dist < wall.radius + GameState.player.radius) {
+                    if (GameState.player.takeDamage(wall.damage)) {
+                        createExplosion(GameState.player.x, GameState.player.y, wall.color, 3);
+                        GameState.berryWalls.splice(i, 1); // Remove wall after hit
+                    }
+                }
+            }
+        }
+    }
+
+    // PHASE 3: Update ground slam AoE (Melon Monarch)
+    if (GameState.bossAoE) {
+        for (let i = GameState.bossAoE.length - 1; i >= 0; i--) {
+            const aoe = GameState.bossAoE[i];
+            aoe.timer += timeScale;
+            if (aoe.timer >= aoe.maxTimer) {
+                // Deal damage at end of animation
+                const dist = Math.hypot(GameState.player.x - aoe.x, GameState.player.y - aoe.y);
+                if (dist < aoe.radius + GameState.player.radius) {
+                    if (GameState.player.takeDamage(aoe.damage)) {
+                        createExplosion(GameState.player.x, GameState.player.y, aoe.color, 8);
+                        GameState.screenShake = { intensity: 10, timer: 250 };
+                    }
+                }
+                GameState.bossAoE.splice(i, 1);
+            } else {
+                // Draw expanding circle
+                const progress = aoe.timer / aoe.maxTimer;
+                const currentRadius = aoe.radius * progress;
+                c.beginPath();
+                c.arc(aoe.x, aoe.y, currentRadius, 0, Math.PI * 2);
+                c.strokeStyle = aoe.color;
+                c.lineWidth = 4;
+                c.stroke();
+                c.fillStyle = `rgba(22, 160, 133, ${0.3 * (1 - progress)})`;
+                c.fill();
+            }
+        }
+    }
+
     for (let i = GameState.enemyProjectiles.length - 1; i >= 0; i--) {
         const ep = GameState.enemyProjectiles[i];
         ep.update(timeScale);
@@ -327,7 +419,8 @@ function animate() {
         const enemy = GameState.enemies[i];
         if (enemy.hp <= 0) {
             createExplosion(enemy.x, enemy.y, enemy.color, 8);
-            if (enemy.id === 'boss') {
+            // PHASE 3: Check for any boss type
+            if (enemy.id === 'boss' || enemy.id === 'melon_monarch' || enemy.id === 'citrus_king' || enemy.id === 'berry_baron') {
                 GameState.activeBoss = null;
                 UIManager.triggerBossLoot();
                 GameState.runStats.bossKills++;

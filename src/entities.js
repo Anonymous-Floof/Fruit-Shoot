@@ -215,6 +215,46 @@ export class Player {
     shoot(weapon) {
         const baseAngle = Math.atan2(GameState.mouse.y - this.y, GameState.mouse.x - this.x);
         this.lastFired = Date.now();
+
+        // PHASE 3: Shotgun Seeds - fires multiple pellets in a spread
+        if (this.currentWeapon === 'shotgun') {
+            const pelletCount = weapon.pelletCount || 5;
+            const spreadAngle = weapon.spread || 0.4;
+            for (let i = 0; i < pelletCount; i++) {
+                const angle = baseAngle + (i - pelletCount / 2) * spreadAngle;
+                const speed = weapon.speed * this.bulletSpeedMult;
+                const size = weapon.radius * this.bulletSizeMult;
+                const dmg = Math.floor(weapon.baseDamage * this.getTotalDmgMult());
+                GameState.projectiles.push(new Projectile(
+                    this.x + Math.cos(angle) * 20, this.y + Math.sin(angle) * 20,
+                    size, weapon.color, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
+                    dmg, 1 + this.bonusPierce, weapon.knockback, weapon.aoe, this.bounces
+                ));
+            }
+            return;
+        }
+
+        // PHASE 3: Laser Zest - fast continuous fire (handled by fire rate, no special logic needed)
+        // PHASE 3: Boomerang Blade - returning projectile
+        if (this.currentWeapon === 'boomerang') {
+            const speed = weapon.speed * this.bulletSpeedMult;
+            const size = weapon.radius * this.bulletSizeMult;
+            const dmg = Math.floor(weapon.baseDamage * this.getTotalDmgMult());
+            const boomerang = new Projectile(
+                this.x + Math.cos(baseAngle) * 20, this.y + Math.sin(baseAngle) * 20,
+                size, weapon.color, { x: Math.cos(baseAngle) * speed, y: Math.sin(baseAngle) * speed },
+                dmg, 1 + this.bonusPierce, weapon.knockback, weapon.aoe, this.bounces
+            );
+            boomerang.isBoomerang = true;
+            boomerang.startX = this.x;
+            boomerang.startY = this.y;
+            boomerang.maxDistance = weapon.maxDistance || 350;
+            boomerang.returning = false;
+            GameState.projectiles.push(boomerang);
+            return;
+        }
+
+        // Default behavior for all other weapons
         const count = 1 + this.bonusProjectiles;
         const currentSpread = 0.1 * this.spreadMult;
         const startAngle = baseAngle - ((count - 1) * currentSpread) / 2;
@@ -705,6 +745,254 @@ export class Boss extends Enemy {
     }
 }
 
+// PHASE 3: Melon Monarch Boss - Summons minions and ground slam
+export class MelonMonarch extends Enemy {
+    constructor(x, y) {
+        super(x, y, { id: 'melon_monarch', radius: 45, color: '#2ecc71', hp: 100, speed: 1.2, xp: 600, spawnWeight: 0, mass: 120 });
+        const p = GameState.player;
+        const weapon = WEAPON_TYPES[p.currentWeapon];
+        const estDPS = (weapon.baseDamage * p.dmgMult) * (1000 / (weapon.fireDelay / p.fireRateMult)) * (1 + p.bonusProjectiles);
+        this.maxHp = Math.floor(estDPS * 18) + (p.level * 220);
+        this.hp = this.maxHp; this.damage = Math.max(20, p.maxHp / 4);
+        this.state = 0; this.stateTimer = 0; this.summonCount = 0;
+    }
+    update(timeScale) {
+        const p = GameState.player;
+        this.stateTimer += timeScale;
+
+        if (this.state === 0) {
+            // Chase player
+            const angle = Math.atan2(p.y - this.y, p.x - this.x);
+            this.x += Math.cos(angle) * this.speed * timeScale;
+            this.y += Math.sin(angle) * this.speed * timeScale;
+            if (this.stateTimer > 250) { this.state = 1; this.stateTimer = 0; }
+        } else if (this.state === 1) {
+            // Summon minions (max 3 per boss)
+            if (this.stateTimer > 80 && this.summonCount < 3 && GameState.enemies.length < 80) {
+                this.summonCount++;
+                this.stateTimer = 0;
+                const spawnAngle = Math.random() * Math.PI * 2;
+                const spawnDist = this.radius + 25;
+                const minionConfig = {
+                    id: 'mini_melon', radius: 12, color: '#27ae60', hp: 40,
+                    speed: 2.5, xp: 8, spawnWeight: 0, mass: 0.8
+                };
+                GameState.enemies.push(new Enemy(
+                    this.x + Math.cos(spawnAngle) * spawnDist,
+                    this.y + Math.sin(spawnAngle) * spawnDist,
+                    minionConfig
+                ));
+                // Particle effect
+                for (let i = 0; i < 8; i++) {
+                    GameState.particles.push(new Particle(this.x, this.y, 4, this.color,
+                        { x: (Math.random() - 0.5) * 4, y: (Math.random() - 0.5) * 4 }));
+                }
+            }
+            if (this.stateTimer > 300) { this.state = 2; this.stateTimer = 0; this.summonCount = 0; }
+        } else if (this.state === 2) {
+            // Ground slam attack
+            if (this.stateTimer === 1) {
+                // Create ground slam AoE
+                if (!GameState.bossAoE) GameState.bossAoE = [];
+                GameState.bossAoE.push({
+                    x: this.x, y: this.y, radius: 150, damage: this.damage * 1.5, timer: 0, maxTimer: 50, color: '#16a085'
+                });
+            }
+            if (this.stateTimer > 100) { this.state = 0; this.stateTimer = 0; }
+        }
+
+        this.x += this.knockbackX * timeScale; this.y += this.knockbackY * timeScale;
+        this.knockbackX *= 0.8; this.knockbackY *= 0.8;
+        this.x = Math.max(45, Math.min(canvas.width - 45, this.x));
+        this.y = Math.max(45, Math.min(canvas.height - 45, this.y));
+        this.rotation += 0.015 * timeScale;
+        this.draw();
+
+        // Draw boss
+        c.save(); c.translate(this.x, this.y); c.rotate(this.rotation);
+        c.fillStyle = '#2ecc71'; c.beginPath(); c.arc(0, 0, this.radius, 0, Math.PI * 2); c.fill();
+        c.fillStyle = '#27ae60'; c.beginPath(); c.arc(0, 0, this.radius * 0.7, 0, Math.PI * 2); c.fill();
+        // Stripes
+        c.strokeStyle = '#1e8449'; c.lineWidth = 3;
+        for (let i = 0; i < 6; i++) {
+            const ang = (i / 6) * Math.PI * 2;
+            c.beginPath();
+            c.moveTo(0, 0);
+            c.lineTo(Math.cos(ang) * this.radius, Math.sin(ang) * this.radius);
+            c.stroke();
+        }
+        c.restore();
+    }
+}
+
+// PHASE 3: Citrus King Boss - Rapid shots and acid pools
+export class CitrusKing extends Enemy {
+    constructor(x, y) {
+        super(x, y, { id: 'citrus_king', radius: 38, color: '#f39c12', hp: 100, speed: 1.8, xp: 600, spawnWeight: 0, mass: 90 });
+        const p = GameState.player;
+        const weapon = WEAPON_TYPES[p.currentWeapon];
+        const estDPS = (weapon.baseDamage * p.dmgMult) * (1000 / (weapon.fireDelay / p.fireRateMult)) * (1 + p.bonusProjectiles);
+        this.maxHp = Math.floor(estDPS * 14) + (p.level * 180);
+        this.hp = this.maxHp; this.damage = Math.max(18, p.maxHp / 5);
+        this.state = 0; this.stateTimer = 0; this.shotCount = 0;
+    }
+    update(timeScale) {
+        const p = GameState.player;
+        this.stateTimer += timeScale;
+
+        if (this.state === 0) {
+            // Move around player at medium distance
+            const angle = Math.atan2(p.y - this.y, p.x - this.x);
+            const dist = Math.hypot(p.x - this.x, p.y - this.y);
+            if (dist > 200) {
+                this.x += Math.cos(angle) * this.speed * timeScale;
+                this.y += Math.sin(angle) * this.speed * timeScale;
+            } else if (dist < 150) {
+                this.x -= Math.cos(angle) * this.speed * timeScale;
+                this.y -= Math.sin(angle) * this.speed * timeScale;
+            }
+            if (this.stateTimer > 200) { this.state = 1; this.stateTimer = 0; this.shotCount = 0; }
+        } else if (this.state === 1) {
+            // Rapid fire burst (8 shots)
+            if (Math.floor(this.stateTimer) % 15 === 0 && this.shotCount < 8) {
+                this.shotCount++;
+                const angle = Math.atan2(p.y - this.y, p.x - this.x);
+                // Inaccuracy for pattern variation
+                const spread = (Math.random() - 0.5) * 0.3;
+                GameState.enemyProjectiles.push(new EnemyProjectile(
+                    this.x, this.y, 6, '#f1c40f',
+                    { x: Math.cos(angle + spread) * 6, y: Math.sin(angle + spread) * 6 }, this.damage
+                ));
+            }
+            if (this.stateTimer > 150) { this.state = 2; this.stateTimer = 0; }
+        } else if (this.state === 2) {
+            // Drop acid pool
+            if (this.stateTimer === 1) {
+                if (!GameState.acidPools) GameState.acidPools = [];
+                GameState.acidPools.push({
+                    x: this.x, y: this.y, radius: 60, damage: this.damage * 0.3, timer: 5000, color: '#d4ac0d'
+                });
+            }
+            if (this.stateTimer > 50) { this.state = 0; this.stateTimer = 0; }
+        }
+
+        this.x += this.knockbackX * timeScale; this.y += this.knockbackY * timeScale;
+        this.knockbackX *= 0.8; this.knockbackY *= 0.8;
+        this.x = Math.max(38, Math.min(canvas.width - 38, this.x));
+        this.y = Math.max(38, Math.min(canvas.height - 38, this.y));
+        this.rotation += 0.025 * timeScale;
+        this.draw();
+
+        // Draw boss
+        c.save(); c.translate(this.x, this.y); c.rotate(this.rotation);
+        c.fillStyle = '#f39c12'; c.beginPath(); c.arc(0, 0, this.radius, 0, Math.PI * 2); c.fill();
+        c.fillStyle = '#f1c40f'; c.beginPath(); c.arc(0, 0, this.radius * 0.6, 0, Math.PI * 2); c.fill();
+        // Citrus segments
+        c.strokeStyle = '#e67e22'; c.lineWidth = 2;
+        for (let i = 0; i < 8; i++) {
+            const ang = (i / 8) * Math.PI * 2;
+            c.beginPath();
+            c.moveTo(0, 0);
+            c.lineTo(Math.cos(ang) * this.radius * 0.9, Math.sin(ang) * this.radius * 0.9);
+            c.stroke();
+        }
+        // Crown
+        c.fillStyle = '#27ae60';
+        for (let i = 0; i < 5; i++) {
+            const ang = (i / 5) * Math.PI * 2 - Math.PI / 2;
+            c.beginPath();
+            c.arc(Math.cos(ang) * (this.radius - 5), Math.sin(ang) * (this.radius - 5) - this.radius + 5, 4, 0, Math.PI * 2);
+            c.fill();
+        }
+        c.restore();
+    }
+}
+
+// PHASE 3: Berry Baron Boss - Phase shifting and berry walls
+export class BerryBaron extends Enemy {
+    constructor(x, y) {
+        super(x, y, { id: 'berry_baron', radius: 35, color: '#8e44ad', hp: 100, speed: 2.0, xp: 600, spawnWeight: 0, mass: 80 });
+        const p = GameState.player;
+        const weapon = WEAPON_TYPES[p.currentWeapon];
+        const estDPS = (weapon.baseDamage * p.dmgMult) * (1000 / (weapon.fireDelay / p.fireRateMult)) * (1 + p.bonusProjectiles);
+        this.maxHp = Math.floor(estDPS * 12) + (p.level * 160);
+        this.hp = this.maxHp; this.damage = Math.max(18, p.maxHp / 5);
+        this.state = 0; this.stateTimer = 0;
+        this.phaseAlpha = 1; this.isPhasing = false;
+    }
+    update(timeScale) {
+        const p = GameState.player;
+        this.stateTimer += timeScale;
+
+        if (this.state === 0) {
+            // Chase player
+            const angle = Math.atan2(p.y - this.y, p.x - this.x);
+            this.x += Math.cos(angle) * this.speed * timeScale;
+            this.y += Math.sin(angle) * this.speed * timeScale;
+            if (this.stateTimer > 200) { this.state = 1; this.stateTimer = 0; }
+        } else if (this.state === 1) {
+            // Phase shift (teleport)
+            if (this.stateTimer === 1) {
+                this.isPhasing = true;
+                this.phaseAlpha = 0.3;
+                // Teleport to random location
+                const teleportAngle = Math.random() * Math.PI * 2;
+                const teleportDist = 150 + Math.random() * 100;
+                this.x = p.x + Math.cos(teleportAngle) * teleportDist;
+                this.y = p.y + Math.sin(teleportAngle) * teleportDist;
+                this.x = Math.max(35, Math.min(canvas.width - 35, this.x));
+                this.y = Math.max(35, Math.min(canvas.height - 35, this.y));
+                // Particles
+                for (let i = 0; i < 12; i++) {
+                    GameState.particles.push(new Particle(this.x, this.y, 5, this.color,
+                        { x: (Math.random() - 0.5) * 5, y: (Math.random() - 0.5) * 5 }));
+                }
+            }
+            if (this.stateTimer > 60) { this.state = 2; this.stateTimer = 0; this.isPhasing = false; this.phaseAlpha = 1; }
+        } else if (this.state === 2) {
+            // Create berry wall
+            if (this.stateTimer === 1) {
+                if (!GameState.berryWalls) GameState.berryWalls = [];
+                // Create a line of berries between boss and player
+                const angle = Math.atan2(p.y - this.y, p.x - this.x);
+                const wallDist = 80;
+                for (let i = 0; i < 7; i++) {
+                    const offsetAngle = angle + Math.PI / 2;
+                    const offset = (i - 3) * 20;
+                    GameState.berryWalls.push({
+                        x: this.x + Math.cos(angle) * wallDist + Math.cos(offsetAngle) * offset,
+                        y: this.y + Math.sin(angle) * wallDist + Math.sin(offsetAngle) * offset,
+                        radius: 12, damage: this.damage * 0.5, timer: 3000, color: '#9b59b6'
+                    });
+                }
+            }
+            if (this.stateTimer > 100) { this.state = 0; this.stateTimer = 0; }
+        }
+
+        this.x += this.knockbackX * timeScale; this.y += this.knockbackY * timeScale;
+        this.knockbackX *= 0.8; this.knockbackY *= 0.8;
+        this.rotation += 0.03 * timeScale;
+        this.draw();
+
+        // Draw boss with phase effect
+        c.save(); c.translate(this.x, this.y); c.rotate(this.rotation);
+        c.globalAlpha = this.phaseAlpha;
+        // Berry cluster appearance
+        c.fillStyle = '#8e44ad';
+        for (let i = 0; i < 7; i++) {
+            const ang = (i / 7) * Math.PI * 2;
+            c.beginPath();
+            c.arc(Math.cos(ang) * this.radius * 0.5, Math.sin(ang) * this.radius * 0.5, this.radius * 0.4, 0, Math.PI * 2);
+            c.fill();
+        }
+        c.fillStyle = '#9b59b6'; c.beginPath(); c.arc(0, 0, this.radius * 0.5, 0, Math.PI * 2); c.fill();
+        // Highlight
+        c.fillStyle = 'rgba(255,255,255,0.3)';
+        c.beginPath(); c.arc(-this.radius * 0.2, -this.radius * 0.2, this.radius * 0.2, 0, Math.PI * 2); c.fill();
+        c.restore();
+    }
+}
+
 export class Projectile {
     constructor(x, y, radius, color, velocity, damage, pierce, knockback, aoe, bounces) {
         this.x = x; this.y = y; this.radius = radius; this.color = color;
@@ -720,6 +1008,30 @@ export class Projectile {
         c.fillStyle = this.color; c.shadowColor = this.color; c.shadowBlur = 5; c.fill(); c.restore();
     }
     update(timeScale) {
+        // PHASE 3: Boomerang return behavior
+        if (this.isBoomerang) {
+            const distFromStart = Math.hypot(this.x - this.startX, this.y - this.startY);
+            if (!this.returning && distFromStart >= this.maxDistance) {
+                this.returning = true;
+            }
+
+            if (this.returning && GameState.player) {
+                // Return to player
+                const angleToPlayer = Math.atan2(GameState.player.y - this.y, GameState.player.x - this.x);
+                const speed = Math.hypot(this.velocity.x, this.velocity.y);
+                this.velocity.x = Math.cos(angleToPlayer) * speed;
+                this.velocity.y = Math.sin(angleToPlayer) * speed;
+                this.angle = angleToPlayer;
+
+                // Remove when back at player
+                const distToPlayer = Math.hypot(this.x - GameState.player.x, this.y - GameState.player.y);
+                if (distToPlayer < GameState.player.radius + this.radius) {
+                    // Remove the projectile (engine.js will handle this)
+                    this.pierce = 0;
+                }
+            }
+        }
+
         // Homing behavior - only activates when bullet passes close to an enemy (~50px)
         if (GameState.player && GameState.player.hasHoming && GameState.enemies.length > 0) {
             const homingActivationRange = 50; // About melon enemy size

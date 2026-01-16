@@ -8,6 +8,10 @@ export const WEAPON_TYPES = {
     rocket: { color: '#ff7675', radius: 8, baseDamage: 45, fireDelay: 750, speed: 7, knockback: 0, aoe: 130 },
     plasma: { color: '#ffeaa7', radius: 6, baseDamage: 25, fireDelay: 200, speed: 12, knockback: 1, aoe: 0 },
     void: { color: '#a29bfe', radius: 7, baseDamage: 30, fireDelay: 500, speed: 4, knockback: 6, aoe: 0 },
+    // PHASE 3: New weapons
+    shotgun: { color: '#ff6348', radius: 3, baseDamage: 10, fireDelay: 600, speed: 8, knockback: 1.5, aoe: 0, pelletCount: 5, spread: 0.4 },
+    laser: { color: '#00d2d3', radius: 5, baseDamage: 8, fireDelay: 50, speed: 20, knockback: 0.3, aoe: 0, isBeam: true },
+    boomerang: { color: '#ff9ff3', radius: 6, baseDamage: 35, fireDelay: 1200, speed: 6, knockback: 2, aoe: 0, returns: true, maxDistance: 350 },
 };
 
 export const ENEMY_TYPES = [
@@ -89,6 +93,10 @@ export const UPGRADES = [
     { id: 'w_rocket', name: 'Melon Mortar', rarity: 'Legendary', desc: 'Explosive AoE', isVisible: (p) => p.currentWeapon !== 'rocket', apply: (p) => { p.currentWeapon = 'rocket'; p.weaponName = 'Melon Mortar'; GameState.runStats.weaponsUsed.add('rocket'); } },
     { id: 'w_plasma', name: 'Zest Laser', rarity: 'Legendary', desc: 'High speed energy', isVisible: (p) => p.currentWeapon !== 'plasma', apply: (p) => { p.currentWeapon = 'plasma'; p.weaponName = 'Zest Laser'; GameState.runStats.weaponsUsed.add('plasma'); } },
     { id: 'w_void', name: 'Rot Beam', rarity: 'Legendary', desc: 'Slow, heavy knockback', isVisible: (p) => p.currentWeapon !== 'void', apply: (p) => { p.currentWeapon = 'void'; p.weaponName = 'Rot Beam'; GameState.runStats.weaponsUsed.add('void'); } },
+    // PHASE 3: New weapons
+    { id: 'w_shotgun', name: 'Shotgun Seeds', rarity: 'Legendary', desc: '5 pellets wide spread', isVisible: (p) => p.currentWeapon !== 'shotgun', apply: (p) => { p.currentWeapon = 'shotgun'; p.weaponName = 'Shotgun Seeds'; GameState.runStats.weaponsUsed.add('shotgun'); } },
+    { id: 'w_laser', name: 'Laser Zest', rarity: 'Legendary', desc: 'Continuous beam weapon', isVisible: (p) => p.currentWeapon !== 'laser', apply: (p) => { p.currentWeapon = 'laser'; p.weaponName = 'Laser Zest'; GameState.runStats.weaponsUsed.add('laser'); } },
+    { id: 'w_boomerang', name: 'Boomerang Blade', rarity: 'Legendary', desc: 'Returns, hits twice', isVisible: (p) => p.currentWeapon !== 'boomerang', apply: (p) => { p.currentWeapon = 'boomerang'; p.weaponName = 'Boomerang Blade'; GameState.runStats.weaponsUsed.add('boomerang'); } },
 
     // --- RARE ---
     { id: 'multishot', name: 'Extra Seeds', desc: '+1 Projectile', rarity: 'Rare', apply: (p) => p.bonusProjectiles++ },
