@@ -2,6 +2,7 @@ import { WEAPON_TYPES } from './config.js';
 import { GameState, c, canvas } from './state.js';
 import { UIManager } from './ui.js';
 import { Settings } from './settings.js';
+import { addDamageNumber } from './engine.js';
 
 export class Player {
     constructor(startX, startY) {
@@ -146,7 +147,7 @@ export class Player {
                         const angle = Math.atan2(e.y - this.y, e.x - this.x);
                         e.takeHit(this.bladeDamage, 2, angle); // Slightly more knockback
                         // FIXED: Adjusted Y offset (-30) to show above enemy
-                        addDamageNumber();
+                        addDamageNumber(e.x, e.y - 30, this.bladeDamage, '#b2bec3');
                     }
                 }
 

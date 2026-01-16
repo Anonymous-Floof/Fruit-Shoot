@@ -65,9 +65,9 @@ function createExplosion(x, y, color, count) {
 }
 
 // PHASE 3: Helper to add damage numbers (checks settings)
-function addDamageNumber(x, y, amount, color = '#fff') {
+export function addDamageNumber(x, y, amount, color = '#fff') {
     if (Settings.get('damageNumbers')) {
-        addDamageNumber();
+        GameState.damageNumbers.push(new DamageText(x, y, amount, color));
     }
 }
 
