@@ -80,6 +80,55 @@
             <!-- Settings View (Hidden by default) -->
             <div id="menuSettings" class="hidden">
                 <h2 style="color: #ff4757; margin-bottom: 20px;">SETTINGS</h2>
+
+                <!-- Screen Shake Toggle -->
+                <div class="setting-item" style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; color: #ccc;">
+                        <span>Screen Shake</span>
+                        <input type="checkbox" id="settingScreenShake" checked
+                            style="width: 20px; height: 20px; cursor: pointer;">
+                    </label>
+                </div>
+
+                <!-- Damage Numbers Toggle -->
+                <div class="setting-item" style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; color: #ccc;">
+                        <span>Damage Numbers</span>
+                        <input type="checkbox" id="settingDamageNumbers" checked
+                            style="width: 20px; height: 20px; cursor: pointer;">
+                    </label>
+                </div>
+
+                <!-- Auto-Fire Toggle -->
+                <div class="setting-item" style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; color: #ccc;">
+                        <span>Auto-Fire (Hold to Shoot)</span>
+                        <input type="checkbox" id="settingAutoFire" style="width: 20px; height: 20px; cursor: pointer;">
+                    </label>
+                </div>
+
+                <!-- Colorblind Mode Toggle -->
+                <div class="setting-item" style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; justify-content: space-between; color: #ccc;">
+                        <span>Colorblind Mode</span>
+                        <input type="checkbox" id="settingColorblind"
+                            style="width: 20px; height: 20px; cursor: pointer;">
+                    </label>
+                </div>
+
+                <hr style="border-color: #444; margin: 20px 0;">
+
+                <!-- Volume Controls (Prepared for future) -->
+                <div class="setting-item" style="margin-bottom: 15px;">
+                    <label style="color: #888;">
+                        Master Volume (Future)
+                        <input type="range" id="settingMasterVolume" min="0" max="100" value="70" disabled
+                            style="width: 100%; margin-top: 5px;">
+                    </label>
+                </div>
+
+                <hr style="border-color: #444; margin: 20px 0;">
+
                 <div class="setting-item" style="margin-bottom: 30px;">
                     <p style="color: #ccc; margin-bottom: 10px;">Reset all game progress (Achievements, Stats, Unlocks).
                     </p>

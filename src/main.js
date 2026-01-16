@@ -48,5 +48,49 @@ document.getElementById('resetProgressBtn').addEventListener('click', () => {
     }
 });
 
+// PHASE 3: Settings Controls
+import('./settings.js').then(({ Settings }) => {
+    // Load settings and set initial UI state
+    const settingScreenShake = document.getElementById('settingScreenShake');
+    const settingDamageNumbers = document.getElementById('settingDamageNumbers');
+    const settingAutoFire = document.getElementById('settingAutoFire');
+    const settingColorblind = document.getElementById('settingColorblind');
+    const settingMasterVolume = document.getElementById('settingMasterVolume');
+
+    // Set initial values from saved settings
+    if (settingScreenShake) settingScreenShake.checked = Settings.get('screenShake');
+    if (settingDamageNumbers) settingDamageNumbers.checked = Settings.get('damageNumbers');
+    if (settingAutoFire) settingAutoFire.checked = Settings.get('autoFire');
+    if (settingColorblind) settingColorblind.checked = Settings.get('colorblindMode');
+    if (settingMasterVolume) settingMasterVolume.value = Settings.get('masterVolume') * 100;
+
+    // Add change listeners
+    if (settingScreenShake) {
+        settingScreenShake.addEventListener('change', (e) => {
+            Settings.set('screenShake', e.target.checked);
+        });
+    }
+    if (settingDamageNumbers) {
+        settingDamageNumbers.addEventListener('change', (e) => {
+            Settings.set('damageNumbers', e.target.checked);
+        });
+    }
+    if (settingAutoFire) {
+        settingAutoFire.addEventListener('change', (e) => {
+            Settings.set('autoFire', e.target.checked);
+        });
+    }
+    if (settingColorblind) {
+        settingColorblind.addEventListener('change', (e) => {
+            Settings.set('colorblindMode', e.target.checked);
+        });
+    }
+    if (settingMasterVolume) {
+        settingMasterVolume.addEventListener('input', (e) => {
+            Settings.set('masterVolume', e.target.value / 100);
+        });
+    }
+});
+
 // Initial HUD state
 UIManager.updateHud();
