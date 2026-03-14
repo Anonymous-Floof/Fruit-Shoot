@@ -1,5 +1,5 @@
 # DISCLAIMER!
-This Project was made with 99% AI with Human Oversight
+This Project was made with 99% AI with Human Oversight.
 Including Models Like the Claude 4.6 family and Gemini 3 Family 🤖
 
 ---
