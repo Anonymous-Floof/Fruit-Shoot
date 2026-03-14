@@ -1,3 +1,6 @@
+# DISCLAIMER! This Project was made with 99% AI with Human Oversight
+# Including Models Like the Claude 4.6 family and Gemini 3 Family 🤖
+
 # 🍉 Fruit Shoot!
 
 A browser-based top-down roguelite shooter where you battle waves of sentient fruit armed with nothing but a blender. Survive as long as possible, level up, collect upgrades, and crush every boss in your path.
