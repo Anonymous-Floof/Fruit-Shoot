@@ -8,8 +8,7 @@ export const Settings = {
         autoFire: false,
         masterVolume: 0.7,
         sfxVolume: 0.7,
-        musicVolume: 0.5,
-        colorblindMode: false
+        musicVolume: 0.5
     },
 
     current: {},

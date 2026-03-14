@@ -76,7 +76,6 @@ Unlock achievements with in-game rewards ranging from 50 to 1200 Essence — inc
 - Screen Shake toggle
 - Damage Numbers toggle
 - Auto-Fire toggle
-- Colorblind Mode toggle
 - Full progress reset
 
 ---

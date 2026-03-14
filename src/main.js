@@ -65,14 +65,12 @@ import('./settings.js').then(({ Settings }) => {
     const settingScreenShake = document.getElementById('settingScreenShake');
     const settingDamageNumbers = document.getElementById('settingDamageNumbers');
     const settingAutoFire = document.getElementById('settingAutoFire');
-    const settingColorblind = document.getElementById('settingColorblind');
     const settingMasterVolume = document.getElementById('settingMasterVolume');
 
     // Set initial values from saved settings
     if (settingScreenShake) settingScreenShake.checked = Settings.get('screenShake');
     if (settingDamageNumbers) settingDamageNumbers.checked = Settings.get('damageNumbers');
     if (settingAutoFire) settingAutoFire.checked = Settings.get('autoFire');
-    if (settingColorblind) settingColorblind.checked = Settings.get('colorblindMode');
     if (settingMasterVolume) settingMasterVolume.value = Settings.get('masterVolume') * 100;
 
     // Add change listeners
@@ -89,11 +87,6 @@ import('./settings.js').then(({ Settings }) => {
     if (settingAutoFire) {
         settingAutoFire.addEventListener('change', (e) => {
             Settings.set('autoFire', e.target.checked);
-        });
-    }
-    if (settingColorblind) {
-        settingColorblind.addEventListener('change', (e) => {
-            Settings.set('colorblindMode', e.target.checked);
         });
     }
     if (settingMasterVolume) {
