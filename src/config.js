@@ -1,5 +1,6 @@
 /* src/config.js */
 import { GameState } from './state.js';
+import { Progression } from './progression.js';
 
 export const WEAPON_TYPES = {
     default: { color: '#ffffff', radius: 4, baseDamage: 15, fireDelay: 400, speed: 9, knockback: 2, aoe: 0 },
@@ -88,27 +89,27 @@ export const UPGRADES = [
     },
 
     // --- WEAPON SWAPS ---
-    { id: 'w_sniper', name: 'Pit Cannon', rarity: 'Legendary', desc: 'Heavy damage, slow fire', isVisible: (p) => p.currentWeapon !== 'sniper', apply: (p) => { p.currentWeapon = 'sniper'; p.weaponName = 'Pit Cannon'; GameState.runStats.weaponsUsed.add('sniper'); } },
-    { id: 'w_minigun', name: 'Seed Spitter', rarity: 'Legendary', desc: 'Rapid fire, low damage', isVisible: (p) => p.currentWeapon !== 'minigun', apply: (p) => { p.currentWeapon = 'minigun'; p.weaponName = 'Seed Spitter'; GameState.runStats.weaponsUsed.add('minigun'); } },
-    { id: 'w_rocket', name: 'Melon Mortar', rarity: 'Legendary', desc: 'Explosive AoE', isVisible: (p) => p.currentWeapon !== 'rocket', apply: (p) => { p.currentWeapon = 'rocket'; p.weaponName = 'Melon Mortar'; GameState.runStats.weaponsUsed.add('rocket'); } },
-    { id: 'w_plasma', name: 'Zest Laser', rarity: 'Legendary', desc: 'High speed energy', isVisible: (p) => p.currentWeapon !== 'plasma', apply: (p) => { p.currentWeapon = 'plasma'; p.weaponName = 'Zest Laser'; GameState.runStats.weaponsUsed.add('plasma'); } },
-    { id: 'w_void', name: 'Rot Beam', rarity: 'Legendary', desc: 'Slow, heavy knockback', isVisible: (p) => p.currentWeapon !== 'void', apply: (p) => { p.currentWeapon = 'void'; p.weaponName = 'Rot Beam'; GameState.runStats.weaponsUsed.add('void'); } },
+    { id: 'w_sniper', name: 'Pit Cannon', rarity: 'Legendary', desc: 'Heavy damage, slow fire', isVisible: (p) => p.currentWeapon !== 'sniper' && Progression.data.unlockedWeapons.includes('sniper'), apply: (p) => { p.currentWeapon = 'sniper'; p.weaponName = 'Pit Cannon'; GameState.runStats.weaponsUsed.add('sniper'); } },
+    { id: 'w_minigun', name: 'Seed Spitter', rarity: 'Legendary', desc: 'Rapid fire, low damage', isVisible: (p) => p.currentWeapon !== 'minigun' && Progression.data.unlockedWeapons.includes('minigun'), apply: (p) => { p.currentWeapon = 'minigun'; p.weaponName = 'Seed Spitter'; GameState.runStats.weaponsUsed.add('minigun'); } },
+    { id: 'w_rocket', name: 'Melon Mortar', rarity: 'Legendary', desc: 'Explosive AoE', isVisible: (p) => p.currentWeapon !== 'rocket' && Progression.data.unlockedWeapons.includes('rocket'), apply: (p) => { p.currentWeapon = 'rocket'; p.weaponName = 'Melon Mortar'; GameState.runStats.weaponsUsed.add('rocket'); } },
+    { id: 'w_plasma', name: 'Zest Laser', rarity: 'Legendary', desc: 'High speed energy', isVisible: (p) => p.currentWeapon !== 'plasma' && Progression.data.unlockedWeapons.includes('plasma'), apply: (p) => { p.currentWeapon = 'plasma'; p.weaponName = 'Zest Laser'; GameState.runStats.weaponsUsed.add('plasma'); } },
+    { id: 'w_void', name: 'Rot Beam', rarity: 'Legendary', desc: 'Slow, heavy knockback', isVisible: (p) => p.currentWeapon !== 'void' && Progression.data.unlockedWeapons.includes('void'), apply: (p) => { p.currentWeapon = 'void'; p.weaponName = 'Rot Beam'; GameState.runStats.weaponsUsed.add('void'); } },
     // PHASE 3: New weapons
-    { id: 'w_shotgun', name: 'Shotgun Seeds', rarity: 'Legendary', desc: '5 pellets wide spread', isVisible: (p) => p.currentWeapon !== 'shotgun', apply: (p) => { p.currentWeapon = 'shotgun'; p.weaponName = 'Shotgun Seeds'; GameState.runStats.weaponsUsed.add('shotgun'); } },
-    { id: 'w_laser', name: 'Laser Zest', rarity: 'Legendary', desc: 'Continuous beam weapon', isVisible: (p) => p.currentWeapon !== 'laser', apply: (p) => { p.currentWeapon = 'laser'; p.weaponName = 'Laser Zest'; GameState.runStats.weaponsUsed.add('laser'); } },
-    { id: 'w_boomerang', name: 'Boomerang Blade', rarity: 'Legendary', desc: 'Returns, hits twice', isVisible: (p) => p.currentWeapon !== 'boomerang', apply: (p) => { p.currentWeapon = 'boomerang'; p.weaponName = 'Boomerang Blade'; GameState.runStats.weaponsUsed.add('boomerang'); } },
+    { id: 'w_shotgun', name: 'Shotgun Seeds', rarity: 'Legendary', desc: '5 pellets wide spread', isVisible: (p) => p.currentWeapon !== 'shotgun' && Progression.data.unlockedWeapons.includes('shotgun'), apply: (p) => { p.currentWeapon = 'shotgun'; p.weaponName = 'Shotgun Seeds'; GameState.runStats.weaponsUsed.add('shotgun'); } },
+    { id: 'w_laser', name: 'Laser Zest', rarity: 'Legendary', desc: 'Continuous beam weapon', isVisible: (p) => p.currentWeapon !== 'laser' && Progression.data.unlockedWeapons.includes('laser'), apply: (p) => { p.currentWeapon = 'laser'; p.weaponName = 'Laser Zest'; GameState.runStats.weaponsUsed.add('laser'); } },
+    { id: 'w_boomerang', name: 'Boomerang Blade', rarity: 'Legendary', desc: 'Returns, hits twice', isVisible: (p) => p.currentWeapon !== 'boomerang' && Progression.data.unlockedWeapons.includes('boomerang'), apply: (p) => { p.currentWeapon = 'boomerang'; p.weaponName = 'Boomerang Blade'; GameState.runStats.weaponsUsed.add('boomerang'); } },
 
     // --- RARE ---
     { id: 'multishot', name: 'Extra Seeds', desc: '+1 Projectile', rarity: 'Rare', apply: (p) => p.bonusProjectiles++ },
     {
         id: 'evasion_rare', name: 'Slippery Skin', desc: '+10% Evasion (Max 50%)', rarity: 'Rare',
-        isVisible: (p) => p.evasion < 0.5,
+        isVisible: (p) => p.evasion < 0.5 && !GameState.mutatorEffects?.noEvasion,
         apply: (p) => p.evasion = Math.min(0.5, p.evasion + 0.1)
     },
     {
-        id: 'regen_rare', name: 'Self-Grafting', desc: '+2 HP Regen / Sec (Max 6)', rarity: 'Rare',
-        isVisible: (p) => p.regen < 6, // Caps appearance at 6
-        apply: (p) => p.regen = Math.min(6, p.regen + 2)
+        id: 'regen_rare', name: 'Self-Grafting', desc: '+2 HP Regen / Sec (Max 2)', rarity: 'Rare',
+        isVisible: (p) => p.regen < 2 && (Progression.data.permanentUpgrades['regen_1'] >= 1), // Only appear if shop item is bought and caps at 2
+        apply: (p) => p.regen = Math.min(2, p.regen + 2)
     },
     { id: 'pierce_rare', name: 'Sharpened Tips', desc: '+1 Pierce', rarity: 'Rare', apply: (p) => p.bonusPierce++ },
     {
@@ -160,6 +161,6 @@ export const UPGRADES = [
     { id: 'bullet_size', name: 'Big Seeds', desc: '+20% Projectile Size', rarity: 'Common', apply: (p) => p.bulletSizeMult += 0.2 },
     { id: 'bullet_speed', name: 'Pressurized', desc: '+25% Projectile Speed', rarity: 'Common', apply: (p) => p.bulletSpeedMult += 0.25 },
     { id: 'knockback', name: 'Heavy Pulp', desc: '+50% Knockback', rarity: 'Common', apply: (p) => p.knockbackMult = (p.knockbackMult || 1) + 0.5 },
-    { id: 'armor', name: 'Thick Skin', desc: '-10% Damage Taken', rarity: 'Common', apply: (p) => p.armorMult = (p.armorMult || 1) * 0.9 },
+    { id: 'armor', name: 'Thick Skin', desc: '-10% Damage Taken', rarity: 'Common', isVisible: () => !GameState.mutatorEffects?.noEvasion, apply: (p) => p.armorMult = (p.armorMult || 1) * 0.9 },
     { id: 'xp_boost', name: 'Vitamin Boost', desc: '+15% XP Gain', rarity: 'Common', apply: (p) => p.xpMult = (p.xpMult || 1) + 0.15 },
 ];

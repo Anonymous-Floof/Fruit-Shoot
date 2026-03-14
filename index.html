@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fruit Shoot! Modular</title>
+    <!-- Tropical Google Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=4">
 </head>
 
@@ -60,14 +62,39 @@
                 <p id="finalScore" class="hidden" style="font-size: 2rem; color: var(--xp); margin-top: 20px;">Yield: 0
                     Liters</p>
                 <button class="btn" id="startBtn">START BLENDING</button>
+                <button class="btn daily-btn" id="dailyChallengeBtn"
+                    style="background: linear-gradient(135deg, #f39c12, #e74c3c); margin-top: 15px;">DAILY
+                    CHALLENGE</button>
                 <div class="menu-secondary-actions"
-                    style="margin-top: 20px; display: flex; gap: 15px; justify-content: center;">
+                    style="margin-top: 20px; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+                    <button class="secondary-btn" id="menuShopBtn"
+                        style="border-color: #2ecc71; color: #2ecc71;">Shop</button>
                     <button class="secondary-btn" id="menuAchievementsBtn">Achievements</button>
                     <button class="secondary-btn" id="menuSettingsBtn"
                         style="border-color: #ff4757; color: #ff6b6b;">Settings</button>
                 </div>
                 <p style="font-size: 1rem; color: #666; margin-top: 30px;">WASD to Move | Hold Click to Blend | TAB to
-                    Pause</p>
+                    Pause | SPACE to Dash</p>
+            </div>
+
+            <!-- Shop View (Hidden by default) -->
+            <div id="menuShop" class="hidden">
+                <h2 style="color: #2ecc71; margin-bottom: 5px;">💎 UPGRADE SHOP</h2>
+                <div id="shopEssence" style="color: #a29bfe; font-size: 1.2rem; margin-bottom: 20px;">Essence: 0</div>
+                <div id="shopContent" class="shop-grid" style="max-height: 400px; overflow-y: auto;"></div>
+                <button class="secondary-btn" id="backFromShopBtn" style="margin-top: 20px;">Back</button>
+            </div>
+
+            <!-- Daily Challenge View (Hidden by default) -->
+            <div id="menuDailyChallenge" class="hidden">
+                <h2 style="color: #f39c12; margin-bottom: 10px;">⚔️ DAILY CHALLENGE ⚔️</h2>
+                <div id="dailyChallengeDate" style="color: #888; margin-bottom: 20px;"></div>
+                <div id="dailyChallengeContent"></div>
+                <div style="margin-top: 25px; display: flex; gap: 15px; justify-content: center;">
+                    <button class="btn" id="startDailyBtn"
+                        style="background: linear-gradient(135deg, #f39c12, #e74c3c);">START DAILY</button>
+                    <button class="secondary-btn" id="backFromDailyBtn">Back</button>
+                </div>
             </div>
 
             <!-- Achievements View (Hidden by default) -->
@@ -79,42 +106,52 @@
 
             <!-- Settings View (Hidden by default) -->
             <div id="menuSettings" class="hidden">
-                <h2 style="color: #ff4757; margin-bottom: 20px;">SETTINGS</h2>
+                <h2 style="color: var(--primary); margin-bottom: 20px;">⚙️ SETTINGS</h2>
 
                 <!-- Screen Shake Toggle -->
-                <div class="setting-item" style="margin-bottom: 15px;">
-                    <label style="display: flex; align-items: center; justify-content: space-between; color: #ccc;">
-                        <span>Screen Shake</span>
-                        <input type="checkbox" id="settingScreenShake" checked
-                            style="width: 20px; height: 20px; cursor: pointer;">
+                <div class="setting-item" style="margin-bottom: 12px;">
+                    <label>
+                        <span>🫨 Screen Shake</span>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="settingScreenShake" checked>
+                            <span class="toggle-slider"></span>
+                        </div>
                     </label>
                 </div>
 
                 <!-- Damage Numbers Toggle -->
-                <div class="setting-item" style="margin-bottom: 15px;">
-                    <label style="display: flex; align-items: center; justify-content: space-between; color: #ccc;">
-                        <span>Damage Numbers</span>
-                        <input type="checkbox" id="settingDamageNumbers" checked
-                            style="width: 20px; height: 20px; cursor: pointer;">
+                <div class="setting-item" style="margin-bottom: 12px;">
+                    <label>
+                        <span>💥 Damage Numbers</span>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="settingDamageNumbers" checked>
+                            <span class="toggle-slider"></span>
+                        </div>
                     </label>
                 </div>
 
                 <!-- Auto-Fire Toggle -->
-                <div class="setting-item" style="margin-bottom: 15px;">
-                    <label style="display: flex; align-items: center; justify-content: space-between; color: #ccc;">
-                        <span>Auto-Fire (Hold to Shoot)</span>
-                        <input type="checkbox" id="settingAutoFire" style="width: 20px; height: 20px; cursor: pointer;">
+                <div class="setting-item" style="margin-bottom: 12px;">
+                    <label>
+                        <span>🔫 Auto-Fire Weapon</span>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="settingAutoFire">
+                            <span class="toggle-slider"></span>
+                        </div>
                     </label>
                 </div>
 
                 <!-- Colorblind Mode Toggle -->
-                <div class="setting-item" style="margin-bottom: 15px;">
-                    <label style="display: flex; align-items: center; justify-content: space-between; color: #ccc;">
-                        <span>Colorblind Mode</span>
-                        <input type="checkbox" id="settingColorblind"
-                            style="width: 20px; height: 20px; cursor: pointer;">
+                <div class="setting-item" style="margin-bottom: 12px;">
+                    <label>
+                        <span>👁️ Colorblind Mode</span>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="settingColorblind">
+                            <span class="toggle-slider"></span>
+                        </div>
                     </label>
                 </div>
+
 
                 <hr style="border-color: #444; margin: 20px 0;">
 

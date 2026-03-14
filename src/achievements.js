@@ -1,5 +1,7 @@
 /* src/achievements.js */
 
+import { Progression } from './progression.js';
+
 // Achievement definitions
 export const ACHIEVEMENTS = [
     { id: 'first_blood', name: 'First Blood', desc: 'Kill 1 enemy', reward: 50, icon: '🎯', check: (stats) => stats.kills >= 1 },
@@ -17,6 +19,15 @@ export const ACHIEVEMENTS = [
     { id: 'essence_hoarder', name: 'Essence Hoarder', desc: 'Earn 5000 total essence', reward: 500, icon: '💎', check: (stats) => stats.totalEssenceEarned >= 5000 },
     { id: 'veteran', name: 'Veteran', desc: 'Reach level 30', reward: 350, icon: '🎖️', check: (stats) => stats.level >= 30 },
     { id: 'perfectionist', name: 'Perfectionist', desc: 'Win a run with 100% HP', reward: 450, icon: '💚', check: (stats) => stats.level >= 20 && stats.hpPercent === 1.0 },
+    { id: 'marathon', name: 'Marathon', desc: 'Survive for 40 minutes', reward: 1000, icon: '🕒', check: (stats) => stats.runTime >= 2400000 },
+    { id: 'wave_master', name: 'Wave Master', desc: 'Reach Wave 10', reward: 800, icon: '🌊', check: (stats) => stats.currentWave >= 10 },
+    { id: 'pacifist', name: 'Pacifist', desc: 'Survive 5 minutes with 0 kills', reward: 1000, icon: '🕊️', check: (stats) => stats.runTime >= 300000 && stats.kills === 0 },
+    { id: 'genocide', name: 'Genocide', desc: 'Kill 5000 enemies', reward: 800, icon: '💀', check: (stats) => stats.totalKills >= 5000 },
+    { id: 'wealthy', name: 'Wealthy', desc: 'Acquire 2000 total essence', reward: 400, icon: '💰', check: (stats) => stats.totalEssenceEarned >= 2000 },
+    { id: 'mythic_slayer', name: 'Mythic Slayer', desc: 'Kill 50 bosses total', reward: 800, icon: '🐉', check: (stats) => stats.totalBossKills >= 50 },
+    { id: 'ghost', name: 'Ghost', desc: 'Reach level 5 without taking damage', reward: 1000, icon: '👻', check: (stats) => stats.level >= 5 && stats.damageTaken === 0 },
+    { id: 'mad_combo', name: 'Mad Combo', desc: 'Reach 500 combo', reward: 600, icon: '🤯', check: (stats) => stats.maxCombo >= 500 },
+    { id: 'no_life', name: 'No Life', desc: 'Reach 8000 combo', reward: 1200, icon: '🐱‍👤', check: (stats) => stats.maxCombo >= 8000 },
 ];
 
 // Check for newly unlocked achievements
@@ -52,10 +63,11 @@ export function getAchievementStats(GameState) {
         weaponsUsed: GameState.runStats.weaponsUsed || new Set(),
         hasGlassCannon: GameState.mutatorEffects.glassCannon || false,
         highCombos: GameState.runStats.highCombos || 0,
-        // Lifetime stats from localStorage
-        totalKills: parseInt(localStorage.getItem('fruitshoot_total_kills') || '0') + GameState.runStats.kills,
-        totalBossKills: parseInt(localStorage.getItem('fruitshoot_total_boss_kills') || '0') + GameState.runStats.bossKills,
-        totalEssenceEarned: parseInt(localStorage.getItem('fruitshoot_total_essence') || '0'),
+        currentWave: GameState.currentWave || 1,
+        // Lifetime stats from Progression (includes current run kills/bossKills added at endRun)
+        totalKills: (Progression.data.totalKills || 0) + GameState.runStats.kills,
+        totalBossKills: (Progression.data.totalBossKills || 0) + GameState.runStats.bossKills,
+        totalEssenceEarned: Progression.data.totalEssence || 0,
     };
 }
 

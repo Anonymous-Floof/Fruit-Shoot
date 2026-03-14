@@ -48,9 +48,9 @@ export class Player {
         this.upgradeHistory = {};
 
         // PHASE 2: Dash Ability
-        this.dashCooldown = 3000; // 3 seconds between dashes
+        this.dashCooldown = 4000; // 4 seconds between dashes
         this.dashTimer = 0; // Current cooldown timer
-        this.dashDuration = 200; // Dash lasts 200ms
+        this.dashDuration = 400; // Dash lasts 400ms
         this.dashSpeed = 12; // Speed while dashing (3x normal)
         this.isDashing = false;
         this.dashDurationTimer = 0;
@@ -59,7 +59,7 @@ export class Player {
     draw() {
         c.save();
         c.translate(this.x, this.y);
-        if (this.invincible) c.globalAlpha = Math.sin(Date.now() / 30) > 0 ? 0.3 : 1;
+        if (this.invincible) c.globalAlpha = Math.sin((GameState.currentTime || Date.now()) / 30) > 0 ? 0.3 : 1;
         const mouseAngle = Math.atan2(GameState.mouse.y - this.y, GameState.mouse.x - this.x);
 
         // Blades (Increased visual length to match new range)
@@ -208,7 +208,8 @@ export class Player {
         this.y = Math.max(this.radius, Math.min(canvas.height - this.radius, this.y));
 
         const weapon = WEAPON_TYPES[this.currentWeapon];
-        if (GameState.mouse.down && Date.now() - this.lastFired > (weapon.fireDelay / this.fireRateMult)) {
+        const shouldFire = GameState.mouse.down || Settings.get('autoFire');
+        if (shouldFire && (GameState.currentTime || Date.now()) - this.lastFired > (weapon.fireDelay / this.fireRateMult)) {
             this.shoot(weapon);
         }
         this.draw();
@@ -216,7 +217,7 @@ export class Player {
 
     shoot(weapon) {
         const baseAngle = Math.atan2(GameState.mouse.y - this.y, GameState.mouse.x - this.x);
-        this.lastFired = Date.now();
+        this.lastFired = (GameState.currentTime || Date.now());
 
         // PHASE 3: Shotgun Seeds - fires multiple pellets in a spread
         if (this.currentWeapon === 'shotgun') {
@@ -296,6 +297,10 @@ export class Player {
                     text: `WAVE ${GameState.currentWave} COMPLETE!`,
                     timer: 2500
                 };
+
+                // Trigger a spawn burst to increase the intensity of the wave!
+                const burstCount = Math.min(15, 3 + Math.floor(GameState.currentWave * 1.5));
+                GameState.waveBurst = burstCount;
             }
 
             if (this.level % 10 === 0) {
@@ -319,7 +324,7 @@ export class Player {
     }
 
     takeDamage(amount) {
-        if (this.invincible) return false;
+        if (this.invincible || this.isDashing) return false;
 
         // Check evasion (respect noEvasion mutator)
         if (!GameState.mutatorEffects.noEvasion && Math.random() < this.evasion) return false;
@@ -358,7 +363,19 @@ export class Enemy {
         this.x = x; this.y = y;
         const difficultyMult = Math.min(5, 1 + (GameState.score / 8000));
         this.id = config.id; this.radius = config.radius; this.color = config.color;
-        this.hp = config.hp * difficultyMult; this.speed = config.speed * (0.9 + Math.random() * 0.2);
+
+        let hpMult = 1;
+        let speedMult = 1;
+        if (GameState.mutatorEffects?.goliath) {
+            hpMult *= 2;
+            speedMult *= 0.75;
+        }
+        if (GameState.mutatorEffects?.swarm) {
+            hpMult *= 0.5;
+        }
+
+        this.hp = config.hp * difficultyMult * hpMult;
+        this.speed = config.speed * speedMult * (0.9 + Math.random() * 0.2);
         this.baseSpeed = this.speed; // Store base speed for slow effects
         this.xpValue = config.xp; this.damage = 10; this.maxHp = this.hp; this.mass = config.mass || 1;
         this.knockbackX = 0; this.knockbackY = 0; this.flashTimer = 0;
@@ -501,7 +518,7 @@ export class Enemy {
             if (this.burnDamageTimer >= burnInterval) {
                 this.burnDamageTimer -= burnInterval;
                 this.hp -= 5;
-                addDamageNumber();
+                addDamageNumber(this.x, this.y - 30, 5, '#ff9500');
             }
         }
 
@@ -702,11 +719,17 @@ export class Enemy {
 export class Boss extends Enemy {
     constructor(x, y) {
         super(x, y, { id: 'boss', radius: 40, color: '#c71585', hp: 100, speed: 1.5, xp: 500, spawnWeight: 0, mass: 100 });
+        this.bossName = 'Dragon Fruit Overlord';
         const p = GameState.player;
         const weapon = WEAPON_TYPES[p.currentWeapon];
         const estDPS = (weapon.baseDamage * p.dmgMult) * (1000 / (weapon.fireDelay / p.fireRateMult)) * (1 + p.bonusProjectiles);
-        this.maxHp = Math.floor(estDPS * 15) + (p.level * 200);
-        this.hp = this.maxHp; this.damage = Math.max(20, p.maxHp / 4);
+
+        // Time scaling: scale exponentially based on minutes survived
+        const runTimeMinutes = (Date.now() - GameState.runStats.startTime) / 60000;
+        const timeScale = Math.pow(1.15, Math.max(0, runTimeMinutes - 15));
+
+        this.maxHp = Math.floor((estDPS * 15 + (p.level * 200)) * timeScale);
+        this.hp = this.maxHp; this.damage = Math.floor(Math.max(20, p.maxHp / 4) * timeScale);
         this.state = 0; this.stateTimer = 0;
     }
     update(timeScale) {
@@ -751,28 +774,73 @@ export class Boss extends Enemy {
 export class MelonMonarch extends Enemy {
     constructor(x, y) {
         super(x, y, { id: 'melon_monarch', radius: 45, color: '#2ecc71', hp: 100, speed: 1.2, xp: 600, spawnWeight: 0, mass: 120 });
+        this.bossName = 'Melon Monarch';
         const p = GameState.player;
         const weapon = WEAPON_TYPES[p.currentWeapon];
         const estDPS = (weapon.baseDamage * p.dmgMult) * (1000 / (weapon.fireDelay / p.fireRateMult)) * (1 + p.bonusProjectiles);
-        this.maxHp = Math.floor(estDPS * 18) + (p.level * 220);
-        this.hp = this.maxHp; this.damage = Math.max(20, p.maxHp / 4);
-        this.state = 0; this.stateTimer = 0; this.summonCount = 0;
+
+        // Time scaling: scale exponentially based on minutes survived
+        const runTimeMinutes = (Date.now() - GameState.runStats.startTime) / 60000;
+        const timeScale = Math.pow(1.15, Math.max(0, runTimeMinutes - 15));
+
+        this.maxHp = Math.floor((estDPS * 20 + (p.level * 220)) * timeScale); // Increased from 18 to 20
+        this.hp = this.maxHp;
+        this.damage = Math.floor(Math.max(20, p.maxHp / 4) * timeScale);
+
+        // State machine
+        this.state = 0; // 0 = chase, 1 = summon, 2 = ground slam
+        this.stateTimer = 0;
+        this.summonCooldown = 0;
+        this.slamCooldown = 0;
+        this.hasFiredSlam = false;
+
+        // Phase tracking
+        this.currentPhase = 1; // 1, 2, or 3
+        this.baseSpeed = this.speed;
     }
+
     update(timeScale) {
         const p = GameState.player;
-        this.stateTimer += timeScale;
+        const effectiveTimeScale = timeScale * 16.67; // Convert to milliseconds
+        this.stateTimer += effectiveTimeScale;
+        this.summonCooldown -= effectiveTimeScale;
+        this.slamCooldown -= effectiveTimeScale;
 
+        // Determine phase based on HP
+        const hpPercent = this.hp / this.maxHp;
+        if (hpPercent <= 0.3 && this.currentPhase < 3) {
+            this.currentPhase = 3;
+            this.speed = this.baseSpeed * 1.5; // Enrage speed boost
+        } else if (hpPercent <= 0.6 && this.currentPhase < 2) {
+            this.currentPhase = 2;
+            this.speed = this.baseSpeed * 1.2;
+        }
+
+        // State machine
         if (this.state === 0) {
             // Chase player
             const angle = Math.atan2(p.y - this.y, p.x - this.x);
             this.x += Math.cos(angle) * this.speed * timeScale;
             this.y += Math.sin(angle) * this.speed * timeScale;
-            if (this.stateTimer > 250) { this.state = 1; this.stateTimer = 0; }
-        } else if (this.state === 1) {
-            // Summon minions (max 3 per boss)
-            if (this.stateTimer > 80 && this.summonCount < 3 && GameState.enemies.length < 80) {
-                this.summonCount++;
+
+            // Try to summon minions
+            if (this.summonCooldown <= 0 && GameState.enemies.length < 80) {
+                const totalMinions = GameState.enemies.filter(e => e.id === 'mini_melon').length;
+                if (totalMinions < 4) {
+                    this.state = 1;
+                    this.stateTimer = 0;
+                }
+            }
+
+            // Try to ground slam (phase 2+)
+            if (this.currentPhase >= 2 && this.slamCooldown <= 0) {
+                this.state = 2;
                 this.stateTimer = 0;
+                this.hasFiredSlam = false;
+            }
+        } else if (this.state === 1) {
+            // Summon minions
+            if (this.stateTimer > 500) {
                 const spawnAngle = Math.random() * Math.PI * 2;
                 const spawnDist = this.radius + 25;
                 const minionConfig = {
@@ -789,33 +857,82 @@ export class MelonMonarch extends Enemy {
                     GameState.particles.push(new Particle(this.x, this.y, 4, this.color,
                         { x: (Math.random() - 0.5) * 4, y: (Math.random() - 0.5) * 4 }));
                 }
+
+                const cooldownTime = this.currentPhase === 3 ? 3000 : 5000;
+                this.summonCooldown = cooldownTime;
+                this.state = 0;
+                this.stateTimer = 0;
             }
-            if (this.stateTimer > 300) { this.state = 2; this.stateTimer = 0; this.summonCount = 0; }
         } else if (this.state === 2) {
             // Ground slam attack
-            if (this.stateTimer === 1) {
-                // Create ground slam AoE
+            if (this.stateTimer <= 800) {
+                // Telegraph phase - show warning circle
+                if (!this.hasFiredSlam) {
+                    const progress = this.stateTimer / 800;
+                    c.beginPath();
+                    c.arc(this.x, this.y, 150 * progress, 0, Math.PI * 2);
+                    c.strokeStyle = `rgba(22, 160, 133, ${1 - progress * 0.5})`;
+                    c.lineWidth = 4;
+                    c.stroke();
+                }
+            } else if (!this.hasFiredSlam) {
+                // Fire the slam
                 if (!GameState.bossAoE) GameState.bossAoE = [];
                 GameState.bossAoE.push({
-                    x: this.x, y: this.y, radius: 150, damage: this.damage * 1.5, timer: 0, maxTimer: 50, color: '#16a085'
+                    x: this.x, y: this.y, radius: 150,
+                    damage: this.damage * 1.5, timer: 0, maxTimer: 30, color: '#16a085'
                 });
+
+                // Phase 3: Seed spray after slam
+                if (this.currentPhase === 3) {
+                    for (let i = 0; i < 12; i++) {
+                        const angle = (i / 12) * Math.PI * 2;
+                        GameState.enemyProjectiles.push(new EnemyProjectile(
+                            this.x, this.y, 5, '#27ae60',
+                            { x: Math.cos(angle) * 3.5, y: Math.sin(angle) * 3.5 }, this.damage * 0.6
+                        ));
+                    }
+                }
+
+                this.hasFiredSlam = true;
+                const cooldownTime = this.currentPhase === 3 ? 4000 : 6000;
+                this.slamCooldown = cooldownTime;
             }
-            if (this.stateTimer > 100) { this.state = 0; this.stateTimer = 0; }
+
+            if (this.stateTimer > 1200) {
+                this.state = 0;
+                this.stateTimer = 0;
+            }
         }
 
-        this.x += this.knockbackX * timeScale; this.y += this.knockbackY * timeScale;
-        this.knockbackX *= 0.8; this.knockbackY *= 0.8;
+        this.x += this.knockbackX * timeScale;
+        this.y += this.knockbackY * timeScale;
+        this.knockbackX *= 0.8;
+        this.knockbackY *= 0.8;
         this.x = Math.max(45, Math.min(canvas.width - 45, this.x));
         this.y = Math.max(45, Math.min(canvas.height - 45, this.y));
         this.rotation += 0.015 * timeScale;
         this.draw();
 
         // Draw boss
-        c.save(); c.translate(this.x, this.y); c.rotate(this.rotation);
-        c.fillStyle = '#2ecc71'; c.beginPath(); c.arc(0, 0, this.radius, 0, Math.PI * 2); c.fill();
-        c.fillStyle = '#27ae60'; c.beginPath(); c.arc(0, 0, this.radius * 0.7, 0, Math.PI * 2); c.fill();
+        c.save();
+        c.translate(this.x, this.y);
+        c.rotate(this.rotation);
+
+        // Phase 3 enrage visual
+        const baseColor = this.currentPhase === 3 ? '#1abc9c' : '#2ecc71';
+        c.fillStyle = baseColor;
+        c.beginPath();
+        c.arc(0, 0, this.radius, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#27ae60';
+        c.beginPath();
+        c.arc(0, 0, this.radius * 0.7, 0, Math.PI * 2);
+        c.fill();
+
         // Stripes
-        c.strokeStyle = '#1e8449'; c.lineWidth = 3;
+        c.strokeStyle = '#1e8449';
+        c.lineWidth = 3;
         for (let i = 0; i < 6; i++) {
             const ang = (i / 6) * Math.PI * 2;
             c.beginPath();
@@ -827,70 +944,187 @@ export class MelonMonarch extends Enemy {
     }
 }
 
+
 // PHASE 3: Citrus King Boss - Rapid shots and acid pools
 export class CitrusKing extends Enemy {
     constructor(x, y) {
         super(x, y, { id: 'citrus_king', radius: 38, color: '#f39c12', hp: 100, speed: 1.8, xp: 600, spawnWeight: 0, mass: 90 });
+        this.bossName = 'Citrus King';
         const p = GameState.player;
         const weapon = WEAPON_TYPES[p.currentWeapon];
         const estDPS = (weapon.baseDamage * p.dmgMult) * (1000 / (weapon.fireDelay / p.fireRateMult)) * (1 + p.bonusProjectiles);
-        this.maxHp = Math.floor(estDPS * 14) + (p.level * 180);
-        this.hp = this.maxHp; this.damage = Math.max(18, p.maxHp / 5);
-        this.state = 0; this.stateTimer = 0; this.shotCount = 0;
+
+        // Time scaling: scale exponentially based on minutes survived
+        const runTimeMinutes = (Date.now() - GameState.runStats.startTime) / 60000;
+        const timeScale = Math.pow(1.15, Math.max(0, runTimeMinutes - 15));
+
+        this.maxHp = Math.floor((estDPS * 18 + (p.level * 250)) * timeScale);
+        this.hp = this.maxHp;
+        this.damage = Math.floor(Math.max(25, p.maxHp / 3) * timeScale);
+
+        // State machine
+        this.state = 0; // 0 = strafe, 1 = spiral attack, 2 = acid pool
+        this.stateTimer = 0;
+        this.shotCooldown = 0;
+        this.acidCooldown = 0;
+        this.spiralAngle = 0;
+        this.dashCooldown = 0;
+
+        // Phase tracking
+        this.currentPhase = 1;
+        this.baseSpeed = this.speed;
     }
+
     update(timeScale) {
         const p = GameState.player;
-        this.stateTimer += timeScale;
+        const effectiveTimeScale = timeScale * 16.67; // Convert to milliseconds
+        this.stateTimer += effectiveTimeScale;
+        this.shotCooldown -= effectiveTimeScale;
+        this.acidCooldown -= effectiveTimeScale;
+        this.dashCooldown -= effectiveTimeScale;
 
-        if (this.state === 0) {
-            // Move around player at medium distance
-            const angle = Math.atan2(p.y - this.y, p.x - this.x);
-            const dist = Math.hypot(p.x - this.x, p.y - this.y);
-            if (dist > 200) {
-                this.x += Math.cos(angle) * this.speed * timeScale;
-                this.y += Math.sin(angle) * this.speed * timeScale;
-            } else if (dist < 150) {
-                this.x -= Math.cos(angle) * this.speed * timeScale;
-                this.y -= Math.sin(angle) * this.speed * timeScale;
-            }
-            if (this.stateTimer > 200) { this.state = 1; this.stateTimer = 0; this.shotCount = 0; }
-        } else if (this.state === 1) {
-            // Rapid fire burst (8 shots)
-            if (Math.floor(this.stateTimer) % 15 === 0 && this.shotCount < 8) {
-                this.shotCount++;
-                const angle = Math.atan2(p.y - this.y, p.x - this.x);
-                // Inaccuracy for pattern variation
-                const spread = (Math.random() - 0.5) * 0.3;
-                GameState.enemyProjectiles.push(new EnemyProjectile(
-                    this.x, this.y, 6, '#f1c40f',
-                    { x: Math.cos(angle + spread) * 6, y: Math.sin(angle + spread) * 6 }, this.damage
-                ));
-            }
-            if (this.stateTimer > 150) { this.state = 2; this.stateTimer = 0; }
-        } else if (this.state === 2) {
-            // Drop acid pool
-            if (this.stateTimer === 1) {
-                if (!GameState.acidPools) GameState.acidPools = [];
-                GameState.acidPools.push({
-                    x: this.x, y: this.y, radius: 60, damage: this.damage * 0.3, timer: 5000, color: '#d4ac0d'
-                });
-            }
-            if (this.stateTimer > 50) { this.state = 0; this.stateTimer = 0; }
+        // Determine phase based on HP
+        const hpPercent = this.hp / this.maxHp;
+        if (hpPercent <= 0.25 && this.currentPhase < 3) {
+            this.currentPhase = 3;
+            this.speed = this.baseSpeed * 1.4;
+        } else if (hpPercent <= 0.5 && this.currentPhase < 2) {
+            this.currentPhase = 2;
+            this.speed = this.baseSpeed * 1.1;
         }
 
-        this.x += this.knockbackX * timeScale; this.y += this.knockbackY * timeScale;
-        this.knockbackX *= 0.8; this.knockbackY *= 0.8;
+        const angle = Math.atan2(p.y - this.y, p.x - this.x);
+        const dist = Math.hypot(p.x - this.x, p.y - this.y);
+
+        if (this.state === 0) {
+            // Strafe around player at medium distance
+            const targetDist = 175;
+            if (dist > targetDist + 50) {
+                this.x += Math.cos(angle) * this.speed * timeScale;
+                this.y += Math.sin(angle) * this.speed * timeScale;
+            } else if (dist < targetDist - 50) {
+                this.x -= Math.cos(angle) * this.speed * timeScale;
+                this.y -= Math.sin(angle) * this.speed * timeScale;
+            } else {
+                // Orbit
+                const perpAngle = angle + Math.PI / 2;
+                this.x += Math.cos(perpAngle) * this.speed * timeScale;
+                this.y += Math.sin(perpAngle) * this.speed * timeScale;
+            }
+
+            // Phase 1: Single aimed shots
+            if (this.currentPhase === 1 && this.shotCooldown <= 0) {
+                GameState.enemyProjectiles.push(new EnemyProjectile(
+                    this.x, this.y, 6, '#f1c40f',
+                    { x: Math.cos(angle) * 5, y: Math.sin(angle) * 5 }, this.damage
+                ));
+                this.shotCooldown = 1500;
+            }
+
+            // Phase 2+: Spiral attack
+            if (this.currentPhase >= 2 && this.stateTimer > 2500) {
+                this.state = 1;
+                this.stateTimer = 0;
+                this.spiralAngle = 0;
+            }
+
+            // Phase 3: Dash attack
+            if (this.currentPhase === 3 && this.dashCooldown <= 0 && dist > 200) {
+                this.dashCooldown = 5000;
+                this.x += Math.cos(angle) * 100;
+                this.y += Math.sin(angle) * 100;
+                // Particles for dash
+                for (let i = 0; i < 10; i++) {
+                    GameState.particles.push(new Particle(this.x, this.y, 4, this.color,
+                        { x: (Math.random() - 0.5) * 6, y: (Math.random() - 0.5) * 6 }));
+                }
+            }
+
+            // Acid pool attack
+            if (this.acidCooldown <= 0) {
+                this.state = 2;
+                this.stateTimer = 0;
+            }
+        } else if (this.state === 1) {
+            // Spiral projectile attack
+            const shotsPerSpiral = this.currentPhase === 3 ? 24 : 12;
+            const spiralCount = this.currentPhase === 3 ? 2 : 1;
+
+            if (this.stateTimer < 1000 && Math.floor(this.stateTimer / 80) > Math.floor((this.stateTimer - effectiveTimeScale) / 80)) {
+                for (let s = 0; s < spiralCount; s++) {
+                    const offset = s * Math.PI / spiralCount;
+                    const projAngle = this.spiralAngle + offset;
+                    GameState.enemyProjectiles.push(new EnemyProjectile(
+                        this.x, this.y, 6, '#f1c40f',
+                        { x: Math.cos(projAngle) * 4, y: Math.sin(projAngle) * 4 }, this.damage * 0.8
+                    ));
+                }
+                this.spiralAngle += (Math.PI * 2) / (shotsPerSpiral / spiralCount);
+            }
+
+            if (this.stateTimer > 1200) {
+                this.state = 0;
+                this.stateTimer = 0;
+            }
+        } else if (this.state === 2) {
+            // Acid pool with telegraph
+            const poolRadius = this.currentPhase === 3 ? 75 : 60;
+
+            if (this.stateTimer < 1500) {
+                // Telegraph - pulsing warning circle
+                const pulseProgress = (this.stateTimer % 300) / 300;
+                const alpha = 0.3 + pulseProgress * 0.3;
+                c.beginPath();
+                c.arc(this.x, this.y, poolRadius, 0, Math.PI * 2);
+                c.fillStyle = `rgba(212, 172, 13, ${alpha})`;
+                c.fill();
+                c.strokeStyle = '#d4ac0d';
+                c.lineWidth = 2;
+                c.stroke();
+            } else if (this.stateTimer >= 1500 && this.stateTimer < 1520) {
+                // Create acid pool
+                if (!GameState.acidPools) GameState.acidPools = [];
+                GameState.acidPools.push({
+                    x: this.x, y: this.y, radius: poolRadius,
+                    damage: this.damage * 0.3, timer: 5000, color: '#d4ac0d', warmup: 0
+                });
+            }
+
+            if (this.stateTimer > 1700) {
+                this.state = 0;
+                this.stateTimer = 0;
+                this.acidCooldown = this.currentPhase === 3 ? 4000 : 6000;
+            }
+        }
+
+        this.x += this.knockbackX * timeScale;
+        this.y += this.knockbackY * timeScale;
+        this.knockbackX *= 0.8;
+        this.knockbackY *= 0.8;
         this.x = Math.max(38, Math.min(canvas.width - 38, this.x));
         this.y = Math.max(38, Math.min(canvas.height - 38, this.y));
         this.rotation += 0.025 * timeScale;
         this.draw();
 
         // Draw boss
-        c.save(); c.translate(this.x, this.y); c.rotate(this.rotation);
-        c.fillStyle = '#f39c12'; c.beginPath(); c.arc(0, 0, this.radius, 0, Math.PI * 2); c.fill();
-        c.fillStyle = '#f1c40f'; c.beginPath(); c.arc(0, 0, this.radius * 0.6, 0, Math.PI * 2); c.fill();
+        c.save();
+        c.translate(this.x, this.y);
+        c.rotate(this.rotation);
+
+        // Phase 3 visual change
+        const outerColor = this.currentPhase === 3 ? '#e67e22' : '#f39c12';
+        c.fillStyle = outerColor;
+        c.beginPath();
+        c.arc(0, 0, this.radius, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#f1c40f';
+        c.beginPath();
+        c.arc(0, 0, this.radius * 0.6, 0, Math.PI * 2);
+        c.fill();
+
         // Citrus segments
-        c.strokeStyle = '#e67e22'; c.lineWidth = 2;
+        c.strokeStyle = '#e67e22';
+        c.lineWidth = 2;
         for (let i = 0; i < 8; i++) {
             const ang = (i / 8) * Math.PI * 2;
             c.beginPath();
@@ -898,12 +1132,14 @@ export class CitrusKing extends Enemy {
             c.lineTo(Math.cos(ang) * this.radius * 0.9, Math.sin(ang) * this.radius * 0.9);
             c.stroke();
         }
-        // Crown
+
+        // Crown / Leaves
         c.fillStyle = '#27ae60';
         for (let i = 0; i < 5; i++) {
-            const ang = (i / 5) * Math.PI * 2 - Math.PI / 2;
+            const ang = -Math.PI / 2 + (i - 2) * 0.25;
             c.beginPath();
-            c.arc(Math.cos(ang) * (this.radius - 5), Math.sin(ang) * (this.radius - 5) - this.radius + 5, 4, 0, Math.PI * 2);
+            // Position them at the top edge of the boss
+            c.arc(Math.cos(ang) * (this.radius - 3), Math.sin(ang) * (this.radius - 3), 4, 0, Math.PI * 2);
             c.fill();
         }
         c.restore();
@@ -913,84 +1149,191 @@ export class CitrusKing extends Enemy {
 // PHASE 3: Berry Baron Boss - Phase shifting and berry walls
 export class BerryBaron extends Enemy {
     constructor(x, y) {
-        super(x, y, { id: 'berry_baron', radius: 35, color: '#8e44ad', hp: 100, speed: 2.0, xp: 600, spawnWeight: 0, mass: 80 });
+        super(x, y, { id: 'berry_baron', radius: 32, color: '#8e44ad', hp: 100, speed: 2.2, xp: 600, spawnWeight: 0, mass: 80 });
+        this.bossName = 'Berry Baron';
         const p = GameState.player;
         const weapon = WEAPON_TYPES[p.currentWeapon];
         const estDPS = (weapon.baseDamage * p.dmgMult) * (1000 / (weapon.fireDelay / p.fireRateMult)) * (1 + p.bonusProjectiles);
-        this.maxHp = Math.floor(estDPS * 12) + (p.level * 160);
-        this.hp = this.maxHp; this.damage = Math.max(18, p.maxHp / 5);
-        this.state = 0; this.stateTimer = 0;
-        this.phaseAlpha = 1; this.isPhasing = false;
+
+        // Time scaling: scale exponentially based on minutes survived
+        const runTimeMinutes = (Date.now() - GameState.runStats.startTime) / 60000;
+        const timeScale = Math.pow(1.15, Math.max(0, runTimeMinutes - 15));
+
+        this.maxHp = Math.floor((estDPS * 16 + (p.level * 200)) * timeScale); // Lower HP but harder to hit
+        this.hp = this.maxHp;
+        this.damage = Math.floor(Math.max(15, p.maxHp / 5) * timeScale);
+
+        // State machine
+        this.state = 0; // 0 = chase, 1 = fadeout, 2 = teleport/fadein, 3 = attack
+        this.stateTimer = 0;
+        this.teleportCooldown = 0;
+        this.prevX = x;
+        this.prevY = y;
+
+        // Visual effects
+        this.phaseAlpha = 1;
+        this.isPhasing = false;
+
+        // Phase tracking
+        this.currentPhase = 1;
+        this.baseSpeed = this.speed;
     }
+
     update(timeScale) {
         const p = GameState.player;
-        this.stateTimer += timeScale;
+        const effectiveTimeScale = timeScale * 16.67; // Convert to milliseconds
+        this.stateTimer += effectiveTimeScale;
+        this.teleportCooldown -= effectiveTimeScale;
+
+        // Determine phase based on HP
+        const hpPercent = this.hp / this.maxHp;
+        if (hpPercent <= 0.25 && this.currentPhase < 3) {
+            this.currentPhase = 3;
+            this.speed = this.baseSpeed * 1.3;
+        } else if (hpPercent <= 0.5 && this.currentPhase < 2) {
+            this.currentPhase = 2;
+            this.speed = this.baseSpeed * 1.15;
+        }
 
         if (this.state === 0) {
             // Chase player
             const angle = Math.atan2(p.y - this.y, p.x - this.x);
             this.x += Math.cos(angle) * this.speed * timeScale;
             this.y += Math.sin(angle) * this.speed * timeScale;
-            if (this.stateTimer > 200) { this.state = 1; this.stateTimer = 0; }
+
+            // Try to teleport
+            if (this.teleportCooldown <= 0) {
+                this.state = 1;
+                this.stateTimer = 0;
+                this.prevX = this.x;
+                this.prevY = this.y;
+            }
         } else if (this.state === 1) {
-            // Phase shift (teleport)
-            if (this.stateTimer === 1) {
-                this.isPhasing = true;
-                this.phaseAlpha = 0.3;
-                // Teleport to random location
-                const teleportAngle = Math.random() * Math.PI * 2;
-                const teleportDist = 150 + Math.random() * 100;
+            // Fade out before teleport
+            this.phaseAlpha = Math.max(0.2, 1 - (this.stateTimer / 500));
+
+            if (this.stateTimer >= 500) {
+                // Teleport to behind player
+                const angle = Math.atan2(p.y - this.y, p.x - this.x);
+                const teleportAngle = angle + Math.PI; // Behind player
+                const teleportDist = 120 + Math.random() * 60;
                 this.x = p.x + Math.cos(teleportAngle) * teleportDist;
                 this.y = p.y + Math.sin(teleportAngle) * teleportDist;
                 this.x = Math.max(35, Math.min(canvas.width - 35, this.x));
                 this.y = Math.max(35, Math.min(canvas.height - 35, this.y));
-                // Particles
-                for (let i = 0; i < 12; i++) {
+
+                this.state = 2;
+                this.stateTimer = 0;
+            }
+        } else if (this.state === 2) {
+            // Fade in after teleport
+            this.phaseAlpha = Math.min(1, this.stateTimer / 500);
+
+            // Particles at new location
+            if (this.stateTimer < 100) {
+                if (Math.random() < 0.3) {
                     GameState.particles.push(new Particle(this.x, this.y, 5, this.color,
                         { x: (Math.random() - 0.5) * 5, y: (Math.random() - 0.5) * 5 }));
                 }
             }
-            if (this.stateTimer > 60) { this.state = 2; this.stateTimer = 0; this.isPhasing = false; this.phaseAlpha = 1; }
-        } else if (this.state === 2) {
-            // Create berry wall
-            if (this.stateTimer === 1) {
-                if (!GameState.berryWalls) GameState.berryWalls = [];
-                // Create a line of berries between boss and player
-                const angle = Math.atan2(p.y - this.y, p.x - this.x);
-                const wallDist = 80;
-                for (let i = 0; i < 7; i++) {
-                    const offsetAngle = angle + Math.PI / 2;
-                    const offset = (i - 3) * 20;
-                    GameState.berryWalls.push({
-                        x: this.x + Math.cos(angle) * wallDist + Math.cos(offsetAngle) * offset,
-                        y: this.y + Math.sin(angle) * wallDist + Math.sin(offsetAngle) * offset,
-                        radius: 12, damage: this.damage * 0.5, timer: 3000, color: '#9b59b6'
+
+            if (this.stateTimer >= 500) {
+                this.state = 3;
+                this.stateTimer = 0;
+                this.phaseAlpha = 1;
+            }
+        } else if (this.state === 3) {
+            // Attack after teleport
+            if (this.currentPhase === 1) {
+                // Phase 1: Berry ring (8 projectiles)
+                if (this.stateTimer < 50) {
+                    for (let i = 0; i < 8; i++) {
+                        const ringAngle = (i / 8) * Math.PI * 2;
+                        GameState.enemyProjectiles.push(new EnemyProjectile(
+                            this.x, this.y, 6, '#9b59b6',
+                            { x: Math.cos(ringAngle) * 4, y: Math.sin(ringAngle) * 4 }, this.damage * 0.7
+                        ));
+                    }
+                }
+            } else if (this.currentPhase === 2) {
+                // Phase 2: Berry cage that constricts
+                if (this.stateTimer < 50) {
+                    if (!GameState.berryWalls) GameState.berryWalls = [];
+                    const cageRadius = 150;
+                    for (let i = 0; i < 12; i++) {
+                        const cageAngle = (i / 12) * Math.PI * 2;
+                        GameState.berryWalls.push({
+                            x: p.x + Math.cos(cageAngle) * cageRadius,
+                            y: p.y + Math.sin(cageAngle) * cageRadius,
+                            radius: 14,
+                            damage: this.damage * 0.6,
+                            timer: 4000,
+                            color: '#9b59b6',
+                            // Constriction
+                            centerX: p.x,
+                            centerY: p.y,
+                            angle: cageAngle,
+                            constricting: true
+                        });
+                    }
+                }
+            } else if (this.currentPhase === 3) {
+                // Phase 3: Leave shadow clone
+                if (this.stateTimer < 50) {
+                    if (!GameState.shadowClones) GameState.shadowClones = [];
+                    GameState.shadowClones.push({
+                        x: this.prevX,
+                        y: this.prevY,
+                        radius: this.radius,
+                        color: 'rgba(142, 68, 173, 0.5)',
+                        timer: 2000,
+                        fireTimer: 800,
+                        hasFired: false,
+                        damage: this.damage * 0.5
                     });
                 }
             }
-            if (this.stateTimer > 100) { this.state = 0; this.stateTimer = 0; }
+
+            if (this.stateTimer > 600) {
+                this.state = 0;
+                this.stateTimer = 0;
+                const cooldownTime = this.currentPhase === 3 ? 2500 : (this.currentPhase === 2 ? 3500 : 4000);
+                this.teleportCooldown = cooldownTime;
+            }
         }
 
-        this.x += this.knockbackX * timeScale; this.y += this.knockbackY * timeScale;
-        this.knockbackX *= 0.8; this.knockbackY *= 0.8;
+        this.x += this.knockbackX * timeScale;
+        this.y += this.knockbackY * timeScale;
+        this.knockbackX *= 0.8;
+        this.knockbackY *= 0.8;
         this.rotation += 0.03 * timeScale;
         this.draw();
 
         // Draw boss with phase effect
-        c.save(); c.translate(this.x, this.y); c.rotate(this.rotation);
+        c.save();
+        c.translate(this.x, this.y);
+        c.rotate(this.rotation);
         c.globalAlpha = this.phaseAlpha;
+
         // Berry cluster appearance
-        c.fillStyle = '#8e44ad';
+        const baseColor = this.currentPhase === 3 ? '#9b59b6' : '#8e44ad';
+        c.fillStyle = baseColor;
         for (let i = 0; i < 7; i++) {
             const ang = (i / 7) * Math.PI * 2;
             c.beginPath();
             c.arc(Math.cos(ang) * this.radius * 0.5, Math.sin(ang) * this.radius * 0.5, this.radius * 0.4, 0, Math.PI * 2);
             c.fill();
         }
-        c.fillStyle = '#9b59b6'; c.beginPath(); c.arc(0, 0, this.radius * 0.5, 0, Math.PI * 2); c.fill();
+        c.fillStyle = '#9b59b6';
+        c.beginPath();
+        c.arc(0, 0, this.radius * 0.5, 0, Math.PI * 2);
+        c.fill();
+
         // Highlight
         c.fillStyle = 'rgba(255,255,255,0.3)';
-        c.beginPath(); c.arc(-this.radius * 0.2, -this.radius * 0.2, this.radius * 0.2, 0, Math.PI * 2); c.fill();
+        c.beginPath();
+        c.arc(-this.radius * 0.2, -this.radius * 0.2, this.radius * 0.2, 0, Math.PI * 2);
+        c.fill();
         c.restore();
     }
 }
@@ -999,7 +1342,7 @@ export class Projectile {
     constructor(x, y, radius, color, velocity, damage, pierce, knockback, aoe, bounces) {
         this.x = x; this.y = y; this.radius = radius; this.color = color;
         this.velocity = velocity; this.damage = damage; this.pierce = pierce;
-        this.knockback = knockback; this.aoe = aoe; this.hitList = []; this.bounces = bounces;
+        this.knockback = knockback; this.aoe = aoe; this.hitList = new Set(); this.bounces = bounces;
         this.angle = Math.atan2(velocity.y, velocity.x);
         this.homingTarget = null; // Locked-on target for homing
     }
@@ -1007,7 +1350,7 @@ export class Projectile {
         c.save(); c.translate(this.x, this.y); c.rotate(this.angle);
         c.beginPath(); c.moveTo(this.radius, 0); c.quadraticCurveTo(0, this.radius, -this.radius, 0);
         c.quadraticCurveTo(0, -this.radius, this.radius, 0);
-        c.fillStyle = this.color; c.shadowColor = this.color; c.shadowBlur = 5; c.fill(); c.restore();
+        c.fillStyle = this.color; c.fill(); c.restore();
     }
     update(timeScale) {
         // PHASE 3: Boomerang return behavior
@@ -1137,7 +1480,7 @@ export class DamageText {
         this.x = x; this.y = y; this.amount = amount; this.alpha = 1; this.velocity = -2; this.color = color;
     }
     draw() {
-        c.save(); c.globalAlpha = this.alpha; c.fillStyle = this.color; c.font = 'bold 16px Arial';
+        c.save(); c.globalAlpha = this.alpha; c.fillStyle = this.color; c.font = 'bold 18px Fredoka, sans-serif';
         c.shadowColor = '#000'; c.shadowBlur = 2; c.fillText(this.amount, this.x, this.y); c.restore();
     }
     update(timeScale) {

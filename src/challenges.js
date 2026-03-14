@@ -36,7 +36,10 @@ const MUTATORS = [
     { id: 'turbo', name: 'Turbo Mode', desc: 'Everything moves 50% faster' },
     { id: 'no_heal', name: 'No Healing', desc: 'Wave completion doesn\'t heal' },
     { id: 'fragile', name: 'Fragile', desc: 'No evasion or armor upgrades' },
-    { id: 'limited_upgrades', name: 'Limited Choice', desc: 'Only 2 upgrade choices per level' }
+    { id: 'limited_upgrades', name: 'Limited Choice', desc: 'Only 2 upgrade choices per level' },
+    { id: 'vampirism', name: 'Vampirism', desc: '-75% Max HP. Dealing damage heals you' },
+    { id: 'goliath', name: 'Goliath', desc: 'Enemies have +100% HP but move 25% slower' },
+    { id: 'swarm', name: 'Swarm', desc: 'Double max enemies and spawn rate, but they have 50% HP' }
 ];
 
 export const DailyChallengeManager = {
@@ -160,6 +163,18 @@ export const DailyChallengeManager = {
                     break;
                 case 'limited_upgrades':
                     mutatorEffects.limitedUpgrades = true;
+                    break;
+                case 'vampirism':
+                    player.maxHp = Math.floor(player.maxHp * 0.25);
+                    player.hp = player.maxHp;
+                    player.hasVampiric = true;
+                    mutatorEffects.vampirism = true;
+                    break;
+                case 'goliath':
+                    mutatorEffects.goliath = true;
+                    break;
+                case 'swarm':
+                    mutatorEffects.swarm = true;
                     break;
             }
         });

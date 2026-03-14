@@ -110,5 +110,8 @@ export const GameState = {
         // Reset visual effects
         this.screenShake = { intensity: 0, timer: 0 };
         this.slowMotion = { multiplier: 1.0, timer: 0 };
+
+        // Reset daily challenge flag
+        this.isDailyChallenge = false;
     }
 };

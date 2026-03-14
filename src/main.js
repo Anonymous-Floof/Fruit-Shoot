@@ -37,6 +37,17 @@ document.getElementById('menuSettingsBtn').addEventListener('click', () => UIMan
 document.getElementById('backFromAchievementsBtn').addEventListener('click', () => UIManager.showMainMenuButtons());
 document.getElementById('backFromSettingsBtn').addEventListener('click', () => UIManager.showMainMenuButtons());
 
+// Daily Challenge Navigation
+document.getElementById('dailyChallengeBtn').addEventListener('click', () => UIManager.showDailyChallenge());
+document.getElementById('backFromDailyBtn').addEventListener('click', () => UIManager.showMainMenuButtons());
+document.getElementById('startDailyBtn').addEventListener('click', () => {
+    import('./engine.js').then(({ initDailyGame }) => initDailyGame());
+});
+
+// Shop Navigation
+document.getElementById('menuShopBtn').addEventListener('click', () => UIManager.showShop());
+document.getElementById('backFromShopBtn').addEventListener('click', () => UIManager.showMainMenuButtons());
+
 // Reset Progress
 document.getElementById('resetProgressBtn').addEventListener('click', () => {
     if (confirm('Are you truly sure? This will wipe all your hard-earned stats and achievements!')) {

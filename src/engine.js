@@ -5,6 +5,7 @@ import { UIManager } from './ui.js';
 import { checkAchievements, getAchievementStats } from './achievements.js';
 import { Progression } from './progression.js';
 import { Settings } from './settings.js';
+import { DailyChallengeManager } from './challenges.js';
 
 let lastTime = 0;
 let enemySpawnTimer = 0;
@@ -12,6 +13,21 @@ let animationId;
 
 // PHASE 2: Achievement tracking
 let lastAchievementCheck = 0;
+
+// UI update timer for consistent refresh rate
+let lastUIUpdate = 0;
+const UI_UPDATE_INTERVAL = 100; // Update UI every 100ms
+
+// Post-processing: Kill flash
+let killFlashAlpha = 0;
+
+// OPTIMIZATION: Gradient Caching (only vignette - truly static)
+const gradientCache = {
+    vignette: null,
+    lastWidth: 0,
+    lastHeight: 0
+};
+const MAX_PARTICLES = 300;
 
 export function spawnBoss() {
     if (GameState.activeBoss) return;
@@ -31,11 +47,26 @@ function spawnEnemy(dt) {
     if (GameState.activeBoss) return;
     enemySpawnTimer += dt;
     const p = GameState.player;
-    const currentSpawnRate = Math.max(150, 1000 - (p.level * 30));
-    const maxEnemies = Math.min(150, 20 + (p.level * 3));
+    let currentSpawnRate = Math.max(150, 1000 - (p.level * 30));
+
+    // Base max enemies increases slightly with level, but gets a big bump during high waves
+    let maxEnemies = Math.min(150, 20 + (p.level * 3) + (GameState.currentWave * 5));
+
+    // Apply Swarm mutator
+    if (GameState.mutatorEffects?.swarm) {
+        maxEnemies *= 2;
+        currentSpawnRate /= 2;
+    }
+
     if (GameState.enemies.length >= maxEnemies) return;
 
-    if (enemySpawnTimer > currentSpawnRate) {
+    // Process a burst spawn from wave changes
+    if (GameState.waveBurst && GameState.waveBurst > 0) {
+        GameState.waveBurst--;
+        enemySpawnTimer = currentSpawnRate; // Force spawn right now
+    }
+
+    if (enemySpawnTimer >= currentSpawnRate) {
         enemySpawnTimer = 0;
         const radius = 20; let x, y;
         if (Math.random() < 0.5) {
@@ -47,12 +78,17 @@ function spawnEnemy(dt) {
         }
         const availableEnemies = ENEMY_TYPES.filter(e => p.level >= e.minLevel);
         if (availableEnemies.length === 0) return;
-        const totalWeight = availableEnemies.reduce((sum, e) => sum + e.spawnWeight, 0);
+
+        // Slightly bias tougher enemies in higher waves
+        const waveWeightBias = GameState.currentWave * 2;
+
+        const totalWeight = availableEnemies.reduce((sum, e) => sum + e.spawnWeight + (e.minLevel > p.level - 5 ? waveWeightBias : 0), 0);
         let random = Math.random() * totalWeight;
         let config = availableEnemies[0];
         for (const enemy of availableEnemies) {
-            if (random < enemy.spawnWeight) { config = enemy; break; }
-            random -= enemy.spawnWeight;
+            const currentWeight = enemy.spawnWeight + (enemy.minLevel > p.level - 5 ? waveWeightBias : 0);
+            if (random < currentWeight) { config = enemy; break; }
+            random -= currentWeight;
         }
         GameState.enemies.push(new Enemy(x, y, config));
     }
@@ -60,6 +96,7 @@ function spawnEnemy(dt) {
 
 function createExplosion(x, y, color, count) {
     for (let i = 0; i < count; i++) {
+        if (GameState.particles.length >= MAX_PARTICLES) break;
         GameState.particles.push(new Particle(x, y, Math.random() * 3, color, { x: (Math.random() - 0.5) * 5, y: (Math.random() - 0.5) * 5 }));
     }
 }
@@ -81,6 +118,27 @@ export function initGame() {
 
     // Apply permanent upgrades
     Progression.applyPermanentUpgrades(GameState.player);
+
+    UIManager.startGame();
+    UIManager.updateHud();
+    lastTime = Date.now();
+    animate();
+}
+
+// Daily Challenge version of initGame
+export function initDailyGame() {
+    GameState.reset();
+    GameState.player = new Player(canvas.width / 2, canvas.height / 2);
+
+    // Track weapon usage
+    const weaponId = Progression.data.selectedWeapon || 'default';
+    GameState.runStats.weaponsUsed.add(weaponId);
+
+    // Apply permanent upgrades first
+    Progression.applyPermanentUpgrades(GameState.player);
+
+    // Apply daily challenge mutators
+    DailyChallengeManager.applyChallengeMutators(GameState.player);
 
     UIManager.startGame();
     UIManager.updateHud();
@@ -113,6 +171,9 @@ function animate() {
         GameState.slowMotion.timer -= dt;
     }
 
+    // Pass the actual loop timestamp to avoid redundant Date.now() queries inside updates
+    GameState.currentTime = now;
+
     // PHASE 2: Update screen shake
     if (GameState.screenShake.timer > 0) {
         GameState.screenShake.timer -= dt;
@@ -130,8 +191,8 @@ function animate() {
         c.translate(shakeX, shakeY);
     }
 
-    c.fillStyle = '#1e272e'; c.fillRect(0, 0, canvas.width, canvas.height);
-    c.strokeStyle = 'rgba(255,255,255,0.03)'; c.lineWidth = 1; c.beginPath();
+    c.fillStyle = '#0A3622'; c.fillRect(0, 0, canvas.width, canvas.height);
+    c.strokeStyle = 'rgba(46, 213, 115, 0.05)'; c.lineWidth = 1; c.beginPath();
     for (let i = 0; i < canvas.width; i += 80) { c.moveTo(i, 0); c.lineTo(i, canvas.height); }
     for (let i = 0; i < canvas.height; i += 80) { c.moveTo(0, i); c.lineTo(canvas.width, i); }
     c.stroke();
@@ -169,13 +230,20 @@ function animate() {
         });
     }
 
+    // Update UI on a timer for consistent refresh rate
+    lastUIUpdate += dt;
+    if (lastUIUpdate > UI_UPDATE_INTERVAL) {
+        lastUIUpdate = 0;
+        UIManager.updateHud();
+    }
+
     // Update trail zones (for Mango enemy)
     if (GameState.trailZones) {
         for (let i = GameState.trailZones.length - 1; i >= 0; i--) {
             const zone = GameState.trailZones[i];
             zone.timer -= dt;
             if (zone.timer <= 0) {
-                GameState.trailZones.splice(i, 1);
+                GameState.trailZones[i] = GameState.trailZones[GameState.trailZones.length - 1]; GameState.trailZones.pop();
             } else {
                 // Draw the zone
                 c.beginPath();
@@ -198,7 +266,7 @@ function animate() {
             const pool = GameState.acidPools[i];
             pool.timer -= dt;
             if (pool.timer <= 0) {
-                GameState.acidPools.splice(i, 1);
+                GameState.acidPools[i] = GameState.acidPools[GameState.acidPools.length - 1]; GameState.acidPools.pop();
             } else {
                 // Draw acid pool
                 c.beginPath();
@@ -225,8 +293,20 @@ function animate() {
         for (let i = GameState.berryWalls.length - 1; i >= 0; i--) {
             const wall = GameState.berryWalls[i];
             wall.timer -= dt;
+
+            // Constriction mechanic (Phase 2 BerryBaron)
+            if (wall.constricting && wall.centerX !== undefined) {
+                const constrictSpeed = 0.03; // Move toward center each frame
+                const currentDist = Math.hypot(wall.x - wall.centerX, wall.y - wall.centerY);
+                if (currentDist > 30) { // Stop constricting when close to center
+                    const angleToCenter = Math.atan2(wall.centerY - wall.y, wall.centerX - wall.x);
+                    wall.x += Math.cos(angleToCenter) * constrictSpeed * dt;
+                    wall.y += Math.sin(angleToCenter) * constrictSpeed * dt;
+                }
+            }
+
             if (wall.timer <= 0) {
-                GameState.berryWalls.splice(i, 1);
+                GameState.berryWalls[i] = GameState.berryWalls[GameState.berryWalls.length - 1]; GameState.berryWalls.pop();
             } else {
                 // Draw berry wall
                 c.beginPath();
@@ -242,9 +322,64 @@ function animate() {
                 if (dist < wall.radius + GameState.player.radius) {
                     if (GameState.player.takeDamage(wall.damage)) {
                         createExplosion(GameState.player.x, GameState.player.y, wall.color, 3);
-                        GameState.berryWalls.splice(i, 1); // Remove wall after hit
+                        GameState.berryWalls[i] = GameState.berryWalls[GameState.berryWalls.length - 1]; GameState.berryWalls.pop(); // Remove wall after hit
                     }
                 }
+            }
+        }
+    }
+
+    // PHASE 3: Update shadow clones (Berry Baron Phase 3)
+    if (GameState.shadowClones) {
+        for (let i = GameState.shadowClones.length - 1; i >= 0; i--) {
+            const clone = GameState.shadowClones[i];
+            clone.timer -= dt;
+            clone.fireTimer -= dt;
+
+            // Fire projectile volley
+            if (!clone.hasFired && clone.fireTimer <= 0) {
+                clone.hasFired = true;
+                // Fire 6 projectiles at player
+                const angleToPlayer = Math.atan2(GameState.player.y - clone.y, GameState.player.x - clone.x);
+                for (let j = 0; j < 6; j++) {
+                    const spread = (j - 2.5) * 0.15; // Spread pattern
+                    GameState.enemyProjectiles.push(new EnemyProjectile(
+                        clone.x, clone.y, 5, '#9b59b6',
+                        { x: Math.cos(angleToPlayer + spread) * 4.5, y: Math.sin(angleToPlayer + spread) * 4.5 },
+                        clone.damage
+                    ));
+                }
+            }
+
+            if (clone.timer <= 0) {
+                // Vanish with particles
+                for (let j = 0; j < 8; j++) {
+                    if (GameState.particles.length < MAX_PARTICLES) {
+                        GameState.particles.push(new Particle(clone.x, clone.y, 4, clone.color,
+                            { x: (Math.random() - 0.5) * 4, y: (Math.random() - 0.5) * 4 }));
+                    }
+                }
+                GameState.shadowClones[i] = GameState.shadowClones[GameState.shadowClones.length - 1]; GameState.shadowClones.pop();
+            } else {
+                // Draw shadow clone
+                const alpha = Math.min(0.5, clone.timer / 500); // Fade out
+                c.save();
+                c.globalAlpha = alpha;
+                c.fillStyle = clone.color;
+
+                // Berry cluster appearance (same as Berry Baron)
+                for (let j = 0; j < 7; j++) {
+                    const ang = (j / 7) * Math.PI * 2;
+                    c.beginPath();
+                    c.arc(clone.x + Math.cos(ang) * clone.radius * 0.5,
+                        clone.y + Math.sin(ang) * clone.radius * 0.5,
+                        clone.radius * 0.4, 0, Math.PI * 2);
+                    c.fill();
+                }
+                c.beginPath();
+                c.arc(clone.x, clone.y, clone.radius * 0.5, 0, Math.PI * 2);
+                c.fill();
+                c.restore();
             }
         }
     }
@@ -263,7 +398,7 @@ function animate() {
                         GameState.screenShake = { intensity: 10, timer: 250 };
                     }
                 }
-                GameState.bossAoE.splice(i, 1);
+                GameState.bossAoE[i] = GameState.bossAoE[GameState.bossAoE.length - 1]; GameState.bossAoE.pop();
             } else {
                 // Draw expanding circle
                 const progress = aoe.timer / aoe.maxTimer;
@@ -285,20 +420,28 @@ function animate() {
         if (Math.hypot(ep.x - GameState.player.x, ep.y - GameState.player.y) < GameState.player.radius + ep.radius) {
             GameState.player.takeDamage(ep.damage);
             createExplosion(GameState.player.x, GameState.player.y, '#f00', 3);
-            GameState.enemyProjectiles.splice(i, 1);
+            GameState.enemyProjectiles[i] = GameState.enemyProjectiles[GameState.enemyProjectiles.length - 1]; GameState.enemyProjectiles.pop();
             continue;
         }
-        if (ep.x < -50 || ep.x > canvas.width + 50 || ep.y < -50 || ep.y > canvas.height + 50) GameState.enemyProjectiles.splice(i, 1);
+        if (ep.x < -50 || ep.x > canvas.width + 50 || ep.y < -50 || ep.y > canvas.height + 50) {
+            GameState.enemyProjectiles[i] = GameState.enemyProjectiles[GameState.enemyProjectiles.length - 1]; GameState.enemyProjectiles.pop();
+        }
     }
 
     for (let i = GameState.particles.length - 1; i >= 0; i--) {
         const p = GameState.particles[i];
-        if (p.alpha <= 0) GameState.particles.splice(i, 1); else p.update(timeScale);
+        if (p.alpha <= 0) {
+            GameState.particles[i] = GameState.particles[GameState.particles.length - 1]; GameState.particles.pop();
+        } else {
+            p.update(timeScale);
+        }
     }
     // FIXED: Moved DamageNumbers loop to the end of function (see below)
 
     for (let i = GameState.expOrbs.length - 1; i >= 0; i--) {
-        if (GameState.expOrbs[i].update(timeScale)) GameState.expOrbs.splice(i, 1);
+        if (GameState.expOrbs[i].update(timeScale)) {
+            GameState.expOrbs[i] = GameState.expOrbs[GameState.expOrbs.length - 1]; GameState.expOrbs.pop();
+        }
     }
 
     for (let pIndex = GameState.projectiles.length - 1; pIndex >= 0; pIndex--) {
@@ -311,12 +454,12 @@ function animate() {
             if (proj.y - proj.radius < 0 || proj.y + proj.radius > canvas.height) { proj.velocity.y *= -1; proj.y = Math.max(proj.radius, Math.min(canvas.height - proj.radius, proj.y)); bounced = true; }
             if (bounced) proj.bounces--;
         } else if (proj.x < 0 || proj.x > canvas.width || proj.y < 0 || proj.y > canvas.height) {
-            GameState.projectiles.splice(pIndex, 1); continue;
+            GameState.projectiles[pIndex] = GameState.projectiles[GameState.projectiles.length - 1]; GameState.projectiles.pop(); continue;
         }
 
         for (let eIndex = GameState.enemies.length - 1; eIndex >= 0; eIndex--) {
             const enemy = GameState.enemies[eIndex];
-            if (proj.hitList.includes(enemy)) continue;
+            if (proj.hitList.has(enemy)) continue;
             const dist = Math.hypot(proj.x - enemy.x, proj.y - enemy.y);
             if (dist - enemy.radius - proj.radius < 0) {
 
@@ -324,7 +467,7 @@ function animate() {
                     GameState.enemies.forEach(nearby => {
                         if (Math.hypot(nearby.x - enemy.x, nearby.y - enemy.y) < 150) {
                             nearby.takeHit(proj.damage * 0.5, 0, 0);
-                            GameState.damageNumbers.push(new DamageText(nearby.x, nearby.y - 20, Math.floor(proj.damage * 0.5), '#00f2ff'));
+                            addDamageNumber(nearby.x, nearby.y - 20, Math.floor(proj.damage * 0.5), '#00f2ff');
                             c.beginPath(); c.moveTo(enemy.x, enemy.y); c.lineTo(nearby.x, nearby.y); c.strokeStyle = '#00f2ff'; c.stroke();
                         }
                     });
@@ -336,7 +479,7 @@ function animate() {
                         if (Math.hypot(nearby.x - proj.x, nearby.y - proj.y) < proj.aoe) {
                             const blastAngle = Math.atan2(nearby.y - proj.y, nearby.x - proj.x);
                             nearby.takeHit(proj.damage, proj.knockback * 2, blastAngle);
-                            GameState.damageNumbers.push(new DamageText(nearby.x, nearby.y - 20, Math.floor(proj.damage)));
+                            addDamageNumber(nearby.x, nearby.y - 20, Math.floor(proj.damage), '#fff');
 
                             // Apply burn if player has it
                             if (GameState.player.hasBurn) {
@@ -350,12 +493,12 @@ function animate() {
                     });
                     // Vampiric healing
                     if (GameState.player.hasVampiric) {
-                        const healAmount = Math.floor(proj.damage * 0.02);
+                        const healAmount = proj.damage * 0.02; // 2% of damage
                         if (healAmount > 0) {
                             GameState.player.hp = Math.min(GameState.player.hp + healAmount, GameState.player.maxHp);
                         }
                     }
-                    GameState.projectiles.splice(pIndex, 1); break;
+                    GameState.projectiles[pIndex] = GameState.projectiles[GameState.projectiles.length - 1]; GameState.projectiles.pop(); break;
                 } else {
                     // Check for Durian reflect behavior
                     if (enemy.behavior === 'reflect' && Math.random() < 0.5) {
@@ -369,7 +512,7 @@ function animate() {
                         createExplosion(proj.x, proj.y, enemy.color, 5);
                         proj.pierce--;
                         if (proj.pierce <= 0) {
-                            GameState.projectiles.splice(pIndex, 1);
+                            GameState.projectiles[pIndex] = GameState.projectiles[GameState.projectiles.length - 1]; GameState.projectiles.pop();
                             break;
                         }
                         continue;
@@ -387,8 +530,8 @@ function animate() {
                     }
 
                     enemy.takeHit(finalDamage, proj.knockback, Math.atan2(enemy.y - proj.y, enemy.x - proj.x));
-                    GameState.damageNumbers.push(new DamageText(enemy.x, enemy.y - 20, Math.floor(finalDamage), damageColor));
-                    proj.hitList.push(enemy);
+                    addDamageNumber(enemy.x, enemy.y - 20, Math.floor(finalDamage), damageColor);
+                    proj.hitList.add(enemy);
 
                     // Apply burn if player has it
                     if (GameState.player.hasBurn) {
@@ -400,7 +543,7 @@ function animate() {
                     }
                     // Vampiric healing
                     if (GameState.player.hasVampiric) {
-                        const healAmount = Math.floor(finalDamage * 0.02);
+                        const healAmount = finalDamage * 0.02; // 2% of damage
                         if (healAmount > 0) {
                             GameState.player.hp = Math.min(GameState.player.hp + healAmount, GameState.player.maxHp);
                         }
@@ -415,7 +558,7 @@ function animate() {
                             proj.velocity.x *= -1;
                             proj.velocity.y *= -1;
                         } else {
-                            GameState.projectiles.splice(pIndex, 1);
+                            GameState.projectiles[pIndex] = GameState.projectiles[GameState.projectiles.length - 1]; GameState.projectiles.pop();
                             break;
                         }
                     }
@@ -463,7 +606,7 @@ function animate() {
                     if (nearby !== enemy && Math.hypot(nearby.x - enemy.x, nearby.y - enemy.y) < 100) {
                         const chainDamage = 30;
                         nearby.takeHit(chainDamage, 3, Math.atan2(nearby.y - enemy.y, nearby.x - enemy.x));
-                        addDamageNumber();
+                        addDamageNumber(nearby.x, nearby.y - 20, chainDamage, '#ff6b6b');
                     }
                 });
             }
@@ -498,8 +641,11 @@ function animate() {
                 const swarmerConfig = ENEMY_TYPES.find(e => e.id === 'swarmer');
                 for (let s = 0; s < 5; s++) GameState.enemies.push(new Enemy(enemy.x + (Math.random() - 0.5) * 30, enemy.y + (Math.random() - 0.5) * 30, swarmerConfig));
             }
-            GameState.enemies.splice(i, 1);
+            GameState.enemies[i] = GameState.enemies[GameState.enemies.length - 1]; GameState.enemies.pop();
             UIManager.updateHud();
+
+            // Post-processing: trigger kill flash
+            killFlashAlpha = Math.min(killFlashAlpha + 0.03, 0.12);
         }
     }
 
@@ -517,7 +663,9 @@ function animate() {
 
     // FIXED: Damage numbers drawn LAST so they appear ON TOP of enemies
     for (let i = GameState.damageNumbers.length - 1; i >= 0; i--) {
-        if (GameState.damageNumbers[i].update(timeScale)) GameState.damageNumbers.splice(i, 1);
+        if (GameState.damageNumbers[i].update(timeScale)) {
+            GameState.damageNumbers[i] = GameState.damageNumbers[GameState.damageNumbers.length - 1]; GameState.damageNumbers.pop();
+        }
     }
 
     // Draw Combo HUD (top-right corner)
@@ -526,14 +674,14 @@ function animate() {
         const comboAlpha = Math.max(0.3, 1 - (GameState.comboTimer / GameState.comboDecayTime));
         c.save();
         c.globalAlpha = comboAlpha;
-        c.font = 'bold 36px Arial';
+        c.font = 'bold 36px Fredoka, sans-serif';
         c.textAlign = 'right';
         c.fillStyle = GameState.combo >= 50 ? '#ff6b6b' : (GameState.combo >= 25 ? '#feca57' : '#55efc4');
         c.shadowColor = '#000';
         c.shadowBlur = 4;
         c.fillText(`${GameState.combo}x COMBO`, canvas.width - 20, 140);
         if (comboBonus > 0) {
-            c.font = 'bold 18px Arial';
+            c.font = 'bold 18px Fredoka, sans-serif';
             c.fillStyle = '#a29bfe';
             c.fillText(`+${comboBonus}% XP`, canvas.width - 20, 165);
         }
@@ -546,16 +694,71 @@ function animate() {
         const bannerAlpha = Math.min(1, GameState.waveBanner.timer / 500);
         c.save();
         c.globalAlpha = bannerAlpha;
-        c.font = 'bold 48px Arial';
+        c.font = 'bold 48px Fredoka, sans-serif';
         c.textAlign = 'center';
         c.fillStyle = '#55efc4';
         c.shadowColor = '#000';
         c.shadowBlur = 6;
         c.fillText(GameState.waveBanner.text, canvas.width / 2, canvas.height / 2 - 50);
-        c.font = '24px Arial';
+        c.font = '24px Fredoka, sans-serif';
         c.fillStyle = '#fff';
         c.fillText('+20% HP Restored!', canvas.width / 2, canvas.height / 2 - 10);
         c.restore();
+    }
+
+    // ═══════ POST-PROCESSING EFFECTS ═══════
+
+    // Cache vignette gradient (only changes on resize)
+    if (gradientCache.lastWidth !== canvas.width || gradientCache.lastHeight !== canvas.height) {
+        gradientCache.vignette = c.createRadialGradient(
+            canvas.width / 2, canvas.height / 2, canvas.width * 0.25,
+            canvas.width / 2, canvas.height / 2, canvas.width * 0.75
+        );
+        gradientCache.vignette.addColorStop(0, 'transparent');
+        gradientCache.vignette.addColorStop(1, 'rgba(0, 10, 5, 0.55)');
+        gradientCache.lastWidth = canvas.width;
+        gradientCache.lastHeight = canvas.height;
+    }
+
+    // 1. Vignette: dark edges for cinematic depth
+    c.fillStyle = gradientCache.vignette;
+    c.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 2. Ambient player glow: soft warm light around the player
+    if (GameState.player) {
+        const glowGrad = c.createRadialGradient(
+            GameState.player.x, GameState.player.y, 0,
+            GameState.player.x, GameState.player.y, 200
+        );
+        glowGrad.addColorStop(0, 'rgba(255, 159, 28, 0.08)');
+        glowGrad.addColorStop(0.5, 'rgba(46, 213, 115, 0.03)');
+        glowGrad.addColorStop(1, 'transparent');
+        c.fillStyle = glowGrad;
+        c.fillRect(
+            GameState.player.x - 200, GameState.player.y - 200,
+            400, 400
+        );
+    }
+
+    // 3. HP Danger tint: pulsing red vignette when HP < 30% (created inline - pulse changes per frame)
+    if (GameState.player && GameState.player.hp / GameState.player.maxHp < 0.3) {
+        const dangerPulse = 0.15 + Math.sin(GameState.currentTime / 300) * 0.08;
+        const dangerGrad = c.createRadialGradient(
+            canvas.width / 2, canvas.height / 2, canvas.width * 0.15,
+            canvas.width / 2, canvas.height / 2, canvas.width * 0.7
+        );
+        dangerGrad.addColorStop(0, 'transparent');
+        dangerGrad.addColorStop(1, `rgba(255, 0, 30, ${dangerPulse})`);
+        c.fillStyle = dangerGrad;
+        c.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // 4. Kill flash: brief white flash on kills
+    if (killFlashAlpha > 0) {
+        c.fillStyle = `rgba(255, 255, 240, ${killFlashAlpha})`;
+        c.fillRect(0, 0, canvas.width, canvas.height);
+        killFlashAlpha -= 0.008; // Fade out
+        if (killFlashAlpha < 0) killFlashAlpha = 0;
     }
 
     // Restore canvas after screen shake

@@ -2,6 +2,7 @@ import { GameState } from './state.js';
 import { WEAPON_TYPES, UPGRADES } from './config.js';
 import { Progression } from './progression.js';
 import { ACHIEVEMENTS } from './achievements.js';
+import { DailyChallengeManager } from './challenges.js';
 
 export const UIManager = {
     // Format score with ml/L units
@@ -26,6 +27,8 @@ export const UIManager = {
     menuButtons: document.querySelector('#menuButtons'),
     menuAchievements: document.querySelector('#menuAchievements'),
     menuSettings: document.querySelector('#menuSettings'),
+    menuDailyChallenge: document.querySelector('#menuDailyChallenge'),
+    menuShop: document.querySelector('#menuShop'),
     mainMenuAchievementsList: document.querySelector('#mainMenuAchievementsList'),
 
     // HUD Elements
@@ -45,6 +48,13 @@ export const UIManager = {
     mainTitle: document.querySelector('#mainTitle'),
     startBtn: document.querySelector('#startBtn'),
 
+    // PHASE 2: Dash Cooldown Indicator
+    dashIndicator: document.getElementById('dashIndicator'),
+    dashCooldownFill: document.getElementById('dashCooldownFill'),
+
+    // Boss HUD Name
+    bossNameEl: document.getElementById('bossName'),
+
     currentUpgradeContext: null, // 'level' or 'boss'
 
     startGame() {
@@ -63,12 +73,16 @@ export const UIManager = {
         this.menuButtons.classList.remove('hidden');
         this.menuAchievements.classList.add('hidden');
         this.menuSettings.classList.add('hidden');
+        if (this.menuDailyChallenge) this.menuDailyChallenge.classList.add('hidden');
+        if (this.menuShop) this.menuShop.classList.add('hidden');
     },
 
     showMainMenuAchievements() {
         this.menuButtons.classList.add('hidden');
         this.menuAchievements.classList.remove('hidden');
         this.menuSettings.classList.add('hidden');
+        if (this.menuDailyChallenge) this.menuDailyChallenge.classList.add('hidden');
+        if (this.menuShop) this.menuShop.classList.add('hidden');
         this.renderMainMenuAchievements();
     },
 
@@ -76,6 +90,171 @@ export const UIManager = {
         this.menuButtons.classList.add('hidden');
         this.menuAchievements.classList.add('hidden');
         this.menuSettings.classList.remove('hidden');
+        if (this.menuDailyChallenge) this.menuDailyChallenge.classList.add('hidden');
+        if (this.menuShop) this.menuShop.classList.add('hidden');
+    },
+
+    showDailyChallenge() {
+        this.menuButtons.classList.add('hidden');
+        this.menuAchievements.classList.add('hidden');
+        this.menuSettings.classList.add('hidden');
+        if (this.menuDailyChallenge) this.menuDailyChallenge.classList.remove('hidden');
+        if (this.menuShop) this.menuShop.classList.add('hidden');
+        this.renderDailyChallenge();
+    },
+
+    showShop() {
+        this.menuButtons.classList.add('hidden');
+        this.menuAchievements.classList.add('hidden');
+        this.menuSettings.classList.add('hidden');
+        if (this.menuDailyChallenge) this.menuDailyChallenge.classList.add('hidden');
+        if (this.menuShop) this.menuShop.classList.remove('hidden');
+        this.renderShop();
+    },
+
+    renderShop() {
+        const essenceEl = document.getElementById('shopEssence');
+        const contentEl = document.getElementById('shopContent');
+        if (!essenceEl || !contentEl) return;
+
+        // Update essence display
+        essenceEl.textContent = `💎 Essence: ${Progression.data.essence}`;
+
+        // Import PERMANENT_UPGRADES and UNLOCKABLE_WEAPONS dynamically for rendering
+        import('./progression.js').then(({ PERMANENT_UPGRADES, UNLOCKABLE_WEAPONS }) => {
+            let html = '';
+
+            html += `<h3 style="color: #55efc4; text-align: center; margin-bottom: 15px; grid-column: 1 / -1;">Permanent Upgrades</h3>`;
+
+            for (const upgrade of PERMANENT_UPGRADES) {
+                const currentLevel = Progression.data.permanentUpgrades[upgrade.id] || 0;
+                const maxed = currentLevel >= upgrade.maxLevel;
+                const cost = maxed ? '✓' : Progression.getUpgradeCost(upgrade.id);
+                const canAfford = !maxed && Progression.data.essence >= cost;
+
+                // Check requirements
+                let requirementMet = true;
+                let requirementText = '';
+                if (upgrade.requires) {
+                    const reqLevel = Progression.data.permanentUpgrades[upgrade.requires] || 0;
+                    requirementMet = reqLevel >= 1;
+                    if (!requirementMet) {
+                        const reqUpgrade = PERMANENT_UPGRADES.find(u => u.id === upgrade.requires);
+                        requirementText = `Requires: ${reqUpgrade?.name || upgrade.requires}`;
+                    }
+                }
+
+                const btnClass = maxed ? 'maxed' : (canAfford && requirementMet ? 'affordable' : 'locked');
+
+                html += `
+                    <div class="shop-item ${btnClass}" data-upgrade-id="${upgrade.id}">
+                        <div class="shop-item-header">
+                            <span class="shop-item-name">${upgrade.name}</span>
+                            <span class="shop-item-level">${currentLevel}/${upgrade.maxLevel}</span>
+                        </div>
+                        <div class="shop-item-desc">${upgrade.desc}</div>
+                        ${requirementText ? `<div class="shop-item-req">${requirementText}</div>` : ''}
+                        <button class="shop-buy-btn upgrade-btn ${btnClass}" ${(maxed || !canAfford || !requirementMet) ? 'disabled' : ''}>
+                            ${maxed ? 'MAXED' : `${cost} 💎`}
+                        </button>
+                    </div>
+                `;
+            }
+
+            html += `<h3 style="color: #ff9ff3; text-align: center; margin-top: 25px; margin-bottom: 15px; grid-column: 1 / -1;">Unlock Weapons</h3>`;
+
+            for (const weapon of UNLOCKABLE_WEAPONS) {
+                const unlocked = weapon.id === 'default' || Progression.data.unlockedWeapons.includes(weapon.id);
+                const canAfford = !unlocked && Progression.data.essence >= weapon.cost;
+
+                const btnClass = unlocked ? 'maxed' : (canAfford ? 'affordable' : 'locked');
+
+                html += `
+                    <div class="shop-item ${btnClass}" data-weapon-id="${weapon.id}">
+                        <div class="shop-item-header">
+                            <span class="shop-item-name">${weapon.name}</span>
+                        </div>
+                        <div class="shop-item-desc">${weapon.id === 'default' ? 'Starter Tool' : 'Unlock for level-up pool'}</div>
+                        <button class="shop-buy-btn weapon-btn ${btnClass}" ${(unlocked || !canAfford) ? 'disabled' : ''}>
+                            ${unlocked ? 'UNLOCKED' : `${weapon.cost} 💎`}
+                        </button>
+                    </div>
+                `;
+            }
+
+            contentEl.innerHTML = html;
+
+            // Add click handlers for upgrades
+            contentEl.querySelectorAll('.upgrade-btn:not([disabled])').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const upgradeId = e.target.closest('.shop-item').dataset.upgradeId;
+                    if (Progression.purchaseUpgrade(upgradeId)) {
+                        this.renderShop(); // Refresh display
+                    }
+                });
+            });
+
+            // Add click handlers for weapons
+            contentEl.querySelectorAll('.weapon-btn:not([disabled])').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const weaponId = e.target.closest('.shop-item').dataset.weaponId;
+                    if (Progression.unlockWeapon(weaponId)) {
+                        this.renderShop(); // Refresh display
+                    }
+                });
+            });
+        });
+    },
+
+    renderDailyChallenge() {
+        const challenge = DailyChallengeManager.getTodaysChallenge();
+        const dateEl = document.getElementById('dailyChallengeDate');
+        const contentEl = document.getElementById('dailyChallengeContent');
+        if (!dateEl || !contentEl) return;
+
+        // Format date
+        const dateStr = String(challenge.date);
+        const year = dateStr.slice(0, 4);
+        const month = dateStr.slice(4, 6);
+        const day = dateStr.slice(6, 8);
+        dateEl.textContent = `${day}/${month}/${year}`;
+
+        // Check completion status
+        const isCompleted = DailyChallengeManager.isTodayCompleted();
+        const bestScore = DailyChallengeManager.getTodaysBestScore();
+
+        // Build mutators HTML
+        let mutatorsHtml = '<div style="text-align: left; max-width: 350px; margin: 0 auto;">';
+        mutatorsHtml += '<h3 style="color: #e74c3c; margin-bottom: 15px;">Active Modifiers:</h3>';
+        challenge.mutators.forEach(mut => {
+            mutatorsHtml += `
+                <div style="background: rgba(231, 76, 60, 0.15); border-left: 3px solid #e74c3c; padding: 10px 15px; margin-bottom: 10px;">
+                    <div style="color: #f39c12; font-weight: bold;">${mut.name}</div>
+                    <div style="color: #ccc; font-size: 0.9rem;">${mut.desc}</div>
+                </div>
+            `;
+        });
+        mutatorsHtml += '</div>';
+
+        // Reward and status
+        let statusHtml = '';
+        if (isCompleted) {
+            statusHtml = `
+                <div style="margin-top: 20px; padding: 15px; background: rgba(46, 204, 113, 0.2); border-radius: 8px;">
+                    <div style="color: #2ecc71; font-size: 1.2rem;">✓ Completed Today!</div>
+                    <div style="color: #fff;">Best Score: <span style="color: #f39c12;">${bestScore.toLocaleString()}</span></div>
+                </div>
+            `;
+        } else {
+            statusHtml = `
+                <div style="margin-top: 20px; padding: 15px; background: rgba(243, 156, 18, 0.2); border-radius: 8px;">
+                    <div style="color: #f39c12; font-size: 1.1rem;">🎁 First Completion Bonus</div>
+                    <div style="color: #fff; font-size: 1.3rem;">+${challenge.bonusEssence} Essence</div>
+                </div>
+            `;
+        }
+
+        contentEl.innerHTML = mutatorsHtml + statusHtml;
     },
 
     renderMainMenuAchievements() {
@@ -131,22 +310,24 @@ export const UIManager = {
             this.bossHud.classList.add('visible');
             const bossPct = Math.max(0, (GameState.activeBoss.hp / GameState.activeBoss.maxHp) * 100);
             this.bossBarFill.style.width = `${bossPct}%`;
+            // Update boss name dynamically using cached element
+            if (this.bossNameEl && GameState.activeBoss.bossName) {
+                this.bossNameEl.textContent = GameState.activeBoss.bossName;
+            }
         } else {
             this.bossHud.classList.remove('visible');
         }
 
         // PHASE 2: Update dash cooldown indicator
-        const dashIndicator = document.getElementById('dashIndicator');
-        if (dashIndicator && p.dashTimer !== undefined) {
+        if (this.dashIndicator && p.dashTimer !== undefined) {
             const cooldownPercent = Math.max(0, (p.dashTimer / p.dashCooldown) * 100);
-            const dashFill = document.getElementById('dashCooldownFill');
-            if (dashFill) {
+            if (this.dashCooldownFill) {
                 if (cooldownPercent > 0) {
-                    dashFill.style.strokeDashoffset = `${100 - cooldownPercent}`;
-                    dashIndicator.classList.remove('ready');
+                    this.dashCooldownFill.style.strokeDashoffset = `${100 - cooldownPercent}`;
+                    this.dashIndicator.classList.remove('ready');
                 } else {
-                    dashFill.style.strokeDashoffset = '0';
-                    dashIndicator.classList.add('ready');
+                    this.dashCooldownFill.style.strokeDashoffset = '0';
+                    this.dashIndicator.classList.add('ready');
                 }
             }
         }
@@ -187,7 +368,12 @@ export const UIManager = {
                 pool.splice(idx, 1);
             }
         } else {
-            for (let i = 0; i < p.upgradeChoices; i++) {
+            // Apply limitedUpgrades mutator from daily challenges
+            let maxChoices = p.upgradeChoices;
+            if (GameState.mutatorEffects && GameState.mutatorEffects.limitedUpgrades) {
+                maxChoices = Math.min(maxChoices, 2);
+            }
+            for (let i = 0; i < maxChoices; i++) {
                 let card = null;
                 let attempts = 0;
                 while (attempts < 50) {
@@ -322,6 +508,33 @@ export const UIManager = {
         const seconds = Math.floor((runTime % 60000) / 1000);
         const upgradeCount = Object.values(GameState.player.upgradeHistory).reduce((sum, u) => sum + u.count, 0);
 
+        // Handle daily challenge completion
+        let dailyBonusHtml = '';
+        if (GameState.isDailyChallenge) {
+            const challenge = DailyChallengeManager.getTodaysChallenge();
+            const wasFirstCompletion = DailyChallengeManager.completeChallenge(GameState.score);
+
+            if (wasFirstCompletion && challenge) {
+                // Award bonus essence
+                Progression.data.essence += challenge.bonusEssence;
+                Progression.data.totalEssence += challenge.bonusEssence;
+                Progression.save();
+
+                dailyBonusHtml = `
+                    <div style="margin-top: 15px; padding: 10px; background: linear-gradient(135deg, rgba(243, 156, 18, 0.3), rgba(231, 76, 60, 0.3)); border-radius: 8px;">
+                        <div style="color: #f39c12;">⚔️ Daily Challenge Complete!</div>
+                        <div style="color: #2ecc71; font-size: 1.2rem;">+${challenge.bonusEssence} Bonus Essence</div>
+                    </div>
+                `;
+            } else {
+                dailyBonusHtml = `
+                    <div style="margin-top: 15px; padding: 10px; background: rgba(100, 100, 100, 0.3); border-radius: 8px;">
+                        <div style="color: #888;">Daily Challenge (Already completed today)</div>
+                    </div>
+                `;
+            }
+        }
+
         // Build detailed stats display
         this.finalScore.innerHTML = `
             <div style="font-size: 2rem; margin-bottom: 10px;">Total Yield: ${this.formatScore(GameState.score)}</div>
@@ -336,6 +549,7 @@ export const UIManager = {
                 <div>🌊 Waves: <span style="color:#55efc4">${GameState.currentWave}</span></div>
                 <div style="grid-column: span 2;">🔧 Upgrades: <span style="color:#ffeaa7">${upgradeCount}</span></div>
             </div>
+            ${dailyBonusHtml}
         `;
         this.finalScore.classList.remove('hidden');
     },
