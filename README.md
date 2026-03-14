@@ -1,6 +1,6 @@
 > [!NOTE]
-> This project was built with 99% AI assistance (Claude & Gemini families) under human oversight. 🤖
-> Expect there to be bugs occasionally
+> - This project was built with 99% AI assistance (Claude & Gemini families) under human oversight. 🤖
+> - Expect there to be bugs and balancing issues
 
 ---
 
