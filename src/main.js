@@ -1,6 +1,7 @@
 import { GameState } from './state.js';
 import { initGame } from './engine.js';
 import { UIManager } from './ui.js';
+import { AudioEngine } from './audio.js';
 
 // Input Listeners
 window.addEventListener('keydown', e => {
@@ -16,7 +17,7 @@ window.addEventListener('keyup', e => {
     else if (GameState.keys.hasOwnProperty(e.key.toLowerCase())) GameState.keys[e.key.toLowerCase()] = false;
 });
 
-window.addEventListener('mousedown', () => GameState.mouse.down = true);
+window.addEventListener('mousedown', () => { GameState.mouse.down = true; AudioEngine.resume(); });
 window.addEventListener('mouseup', () => GameState.mouse.down = false);
 window.addEventListener('mousemove', e => {
     GameState.mouse.x = e.clientX;
@@ -27,8 +28,15 @@ window.addEventListener('mousemove', e => {
 window.addEventListener('contextmenu', e => e.preventDefault());
 // -------------------------------------------------
 
-// UI Buttons
-document.getElementById('startBtn').addEventListener('click', initGame);
+// UI Buttons — route through class selection → modifiers → game
+document.getElementById('startBtn').addEventListener('click', () => {
+    UIManager.showClassSelect(() => {
+        UIManager.showRunModifiers(() => {
+            AudioEngine.resume();
+            initGame();
+        });
+    });
+});
 document.getElementById('resumeBtn').addEventListener('click', () => UIManager.togglePause());
 
 // Main Menu Navigation
@@ -47,6 +55,14 @@ document.getElementById('startDailyBtn').addEventListener('click', () => {
 // Shop Navigation
 document.getElementById('menuShopBtn').addEventListener('click', () => UIManager.showShop());
 document.getElementById('backFromShopBtn').addEventListener('click', () => UIManager.showMainMenuButtons());
+
+// Run History Navigation
+document.getElementById('menuRunHistoryBtn').addEventListener('click', () => UIManager.showRunHistory());
+document.getElementById('backFromRunHistoryBtn').addEventListener('click', () => UIManager.showMainMenuButtons());
+
+// Bestiary Navigation
+document.getElementById('menuCompendiumBtn').addEventListener('click', () => UIManager.showCompendium());
+document.getElementById('backFromCompendiumBtn').addEventListener('click', () => UIManager.showMainMenuButtons());
 
 // Reset Progress
 document.getElementById('resetProgressBtn').addEventListener('click', () => {

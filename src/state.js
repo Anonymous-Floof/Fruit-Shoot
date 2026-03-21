@@ -66,6 +66,22 @@ export const GameState = {
         timer: 0
     },
 
+    // Laser beam render data (set each frame by Player.shoot when laser is active)
+    laserBeam: null,
+
+    // Run modifiers chosen before each run
+    activeBlessing: null,
+    activeCurse: null,
+
+    // Mid-run random events
+    nextEventWave: 4, // First event triggers after wave 4
+
+    // The Juicing Hour endgame (wave 15)
+    juicingHour: { active: false, timer: 0, bossInterval: 0 },
+
+    // Wave stall catch-up timer (ms on current wave without progression)
+    waveStallTimer: 0,
+
     reset() {
         this.projectiles = [];
         this.enemyProjectiles = [];
@@ -110,6 +126,14 @@ export const GameState = {
         // Reset visual effects
         this.screenShake = { intensity: 0, timer: 0 };
         this.slowMotion = { multiplier: 1.0, timer: 0 };
+        this.laserBeam = null;
+        this.activeBlessing = null;
+        this.activeCurse = null;
+        this.cactusPods = [];
+        this.guavaNests = [];
+        this.nextEventWave = 4;
+        this.juicingHour = { active: false, timer: 0, bossInterval: 0 };
+        this.waveStallTimer = 0;
 
         // Reset daily challenge flag
         this.isDailyChallenge = false;

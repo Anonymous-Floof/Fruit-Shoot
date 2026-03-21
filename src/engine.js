@@ -1,11 +1,12 @@
 import { GameState, c, canvas } from './state.js';
-import { Player, Enemy, Boss, MelonMonarch, CitrusKing, BerryBaron, Particle, DamageText, ExpOrb, EnemyProjectile } from './entities.js';
-import { ENEMY_TYPES } from './config.js';
+import { Player, Enemy, Boss, MelonMonarch, CitrusKing, BerryBaron, PricklePearTyrant, Particle, DamageText, ExpOrb, EnemyProjectile } from './entities.js';
+import { ENEMY_TYPES, CLASSES } from './config.js';
 import { UIManager } from './ui.js';
 import { checkAchievements, getAchievementStats } from './achievements.js';
-import { Progression } from './progression.js';
+import { Progression, UNLOCKABLE_WEAPONS } from './progression.js';
 import { Settings } from './settings.js';
 import { DailyChallengeManager } from './challenges.js';
+import { AudioEngine } from './audio.js';
 
 let lastTime = 0;
 let enemySpawnTimer = 0;
@@ -34,12 +35,13 @@ export function spawnBoss() {
     const x = canvas.width / 2; const y = -100;
 
     // PHASE 3: Random boss selection
-    const bossTypes = [Boss, MelonMonarch, CitrusKing, BerryBaron];
+    const bossTypes = [Boss, MelonMonarch, CitrusKing, BerryBaron, PricklePearTyrant];
     const BossClass = bossTypes[Math.floor(Math.random() * bossTypes.length)];
     const boss = new BossClass(x, y);
 
     GameState.enemies.push(boss);
     GameState.activeBoss = boss;
+    AudioEngine.playBossSpawn();
     UIManager.updateHud();
 }
 
@@ -90,7 +92,20 @@ function spawnEnemy(dt) {
             if (random < currentWeight) { config = enemy; break; }
             random -= currentWeight;
         }
-        GameState.enemies.push(new Enemy(x, y, config));
+        const newEnemy = new Enemy(x, y, config);
+        // Track first encounter for Bestiary
+        Progression.trackEncounter(config.id);
+        // 10% chance for any non-boss enemy to become an Elite
+        if (Math.random() < 0.10) {
+            newEnemy.makeElite();
+            AudioEngine.playEliteSpawn();
+        }
+        // Pursuit curse: all enemies move 30% faster
+        if (GameState.mutatorEffects?.pursuit) {
+            newEnemy.speed *= 1.3;
+            newEnemy.baseSpeed = newEnemy.speed;
+        }
+        GameState.enemies.push(newEnemy);
     }
 }
 
@@ -109,7 +124,12 @@ export function addDamageNumber(x, y, amount, color = '#fff') {
 }
 
 export function initGame() {
+    // Save modifiers chosen before the run so reset() doesn't wipe them
+    const savedBlessing = GameState.activeBlessing;
+    const savedCurse = GameState.activeCurse;
     GameState.reset();
+    GameState.activeBlessing = savedBlessing;
+    GameState.activeCurse = savedCurse;
     GameState.player = new Player(canvas.width / 2, canvas.height / 2);
 
     // PHASE 2: Track weapon usage
@@ -118,11 +138,50 @@ export function initGame() {
 
     // Apply permanent upgrades
     Progression.applyPermanentUpgrades(GameState.player);
+    Progression.applyPrestigeUpgrades(GameState.player);
+
+    // Apply selected class bonuses
+    const cls = CLASSES.find(c => c.id === (Progression.data.selectedClass || 'juicer'));
+    if (cls) {
+        if (cls.weapon && cls.weapon !== 'default' && Progression.data.unlockedWeapons.includes(cls.weapon)) {
+            GameState.player.currentWeapon = cls.weapon;
+            const wpn = UNLOCKABLE_WEAPONS.find(w => w.id === cls.weapon);
+            if (wpn) GameState.player.weaponName = wpn.name;
+        }
+        cls.apply(GameState.player);
+    }
+
+    // Apply blessing and curse from run modifiers
+    applyRunModifiers(GameState.player);
 
     UIManager.startGame();
     UIManager.updateHud();
     lastTime = Date.now();
     animate();
+}
+
+function applyRunModifiers(player) {
+    const curse = GameState.activeCurse;
+    const blessing = GameState.activeBlessing;
+    if (curse) {
+        if (curse.apply) curse.apply(player);
+        if (curse.effect === 'halfComboTime') GameState.comboDecayTime = 1000;
+        if (curse.effect === 'pursuit') GameState.mutatorEffects.pursuit = true;
+    }
+    if (blessing) {
+        if (blessing.apply) blessing.apply(player);
+        if (blessing.effect === 'doubleMythic') GameState.mutatorEffects.doubleMythic = true;
+        if (blessing.effect === 'headStart') {
+            // Fast-forward XP so player starts closer to wave 2 (level 10)
+            player.xp = 0;
+            for (let i = 0; i < 5; i++) {
+                player.level++;
+                player.xpToNextLevel = Math.floor(player.xpToNextLevel * 1.25);
+            }
+            GameState.currentWave = 1;
+            GameState.lastWaveLevel = 5;
+        }
+    }
 }
 
 // Daily Challenge version of initGame
@@ -137,8 +196,22 @@ export function initDailyGame() {
     // Apply permanent upgrades first
     Progression.applyPermanentUpgrades(GameState.player);
 
+    // Apply selected class bonuses
+    const dailyCls = CLASSES.find(c => c.id === (Progression.data.selectedClass || 'juicer'));
+    if (dailyCls) {
+        if (dailyCls.weapon && dailyCls.weapon !== 'default' && Progression.data.unlockedWeapons.includes(dailyCls.weapon)) {
+            GameState.player.currentWeapon = dailyCls.weapon;
+            const wpn = UNLOCKABLE_WEAPONS.find(w => w.id === dailyCls.weapon);
+            if (wpn) GameState.player.weaponName = wpn.name;
+        }
+        dailyCls.apply(GameState.player);
+    }
+
     // Apply daily challenge mutators
     DailyChallengeManager.applyChallengeMutators(GameState.player);
+
+    // Anti-cheat: record the real-time timestamp when this run starts
+    DailyChallengeManager.recordChallengeStart();
 
     UIManager.startGame();
     UIManager.updateHud();
@@ -198,7 +271,54 @@ function animate() {
     c.stroke();
 
     GameState.player.update(dt, timeScale);
-    spawnEnemy(dt);
+
+    // The Juicing Hour: 90-second final boss gauntlet
+    if (GameState.juicingHour?.active) {
+        const jh = GameState.juicingHour;
+        jh.timer -= dt;
+        jh.bossInterval -= dt;
+
+        // Spawn a boss every 15 seconds
+        if (jh.bossInterval <= 0 && !GameState.activeBoss) {
+            spawnBoss();
+            jh.bossInterval = 15000;
+        }
+
+        // Draw countdown on screen
+        const secsLeft = Math.max(0, Math.ceil(jh.timer / 1000));
+        const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+        c.save();
+        c.globalAlpha = 0.8 + 0.2 * pulse;
+        c.font = 'bold 28px Fredoka, sans-serif';
+        c.textAlign = 'center';
+        c.fillStyle = secsLeft <= 15 ? '#e74c3c' : '#ffd700';
+        c.shadowColor = '#000'; c.shadowBlur = 8;
+        c.fillText(`⚡ JUICING HOUR: ${secsLeft}s`, canvas.width / 2, 60);
+        c.restore();
+
+        if (jh.timer <= 0) {
+            // Victory!
+            UIManager.gameOver(true);
+            return;
+        }
+    } else {
+        spawnEnemy(dt);
+
+        // Wave stall catch-up: if stuck on same wave for 3 minutes, force next wave
+        if (!GameState.juicingHour?.active && GameState.currentWave < 15) {
+            GameState.waveStallTimer += dt;
+            if (GameState.waveStallTimer >= 180000) {
+                GameState.waveStallTimer = 0;
+                // Force wave progression by setting lastWaveLevel to current level
+                // so the next enemy kill / XP gain triggers the wave check
+                GameState.lastWaveLevel = GameState.player.level;
+                GameState.player.level += 5;
+                GameState.currentWave++;
+                GameState.waveBurst = 8;
+                GameState.waveBanner = { text: `WAVE ${GameState.currentWave}!`, timer: 3000 };
+            }
+        }
+    }
 
     // Update combo timer
     if (GameState.combo > 0) {
@@ -251,10 +371,10 @@ function animate() {
                 c.fillStyle = 'rgba(255, 107, 107, 0.3)';
                 c.fill();
 
-                // Check if player is in zone
+                // Check if player is in zone — apply speed penalty this frame
                 const dist = Math.hypot(GameState.player.x - zone.x, GameState.player.y - zone.y);
                 if (dist < zone.radius + GameState.player.radius) {
-                    // Slow player temporarily (handled via speedMult would require more complex logic)
+                    GameState.player.zoneSlow = Math.min(GameState.player.zoneSlow, 0.5);
                 }
             }
         }
@@ -277,11 +397,74 @@ function animate() {
                 c.lineWidth = 2;
                 c.stroke();
 
-                // Damage player if standing in pool
+                // Damage and slow player if standing in pool
                 const dist = Math.hypot(GameState.player.x - pool.x, GameState.player.y - pool.y);
                 if (dist < pool.radius + GameState.player.radius) {
+                    GameState.player.zoneSlow = Math.min(GameState.player.zoneSlow, 0.6);
                     if (Math.random() < 0.1) { // 10% chance per frame to deal damage
                         GameState.player.takeDamage(pool.damage);
+                    }
+                }
+            }
+        }
+    }
+
+    // Guava nests: spawn swarmers every 2 seconds for 10 seconds
+    if (GameState.guavaNests) {
+        for (let i = GameState.guavaNests.length - 1; i >= 0; i--) {
+            const nest = GameState.guavaNests[i];
+            nest.timer -= dt;
+            nest.spawnTimer -= dt;
+            // Draw nest indicator
+            c.save();
+            c.globalAlpha = 0.4;
+            c.beginPath(); c.arc(nest.x, nest.y, 30, 0, Math.PI * 2);
+            c.fillStyle = '#55efc4'; c.fill();
+            c.restore();
+            if (nest.spawnTimer <= 0 && GameState.enemies.length < 100) {
+                nest.spawnTimer = 2000;
+                const swarmerConfig = ENEMY_TYPES.find(e => e.id === 'swarmer');
+                if (swarmerConfig) {
+                    GameState.enemies.push(new Enemy(nest.x + (Math.random() - 0.5) * 20, nest.y + (Math.random() - 0.5) * 20, swarmerConfig));
+                }
+            }
+            if (nest.timer <= 0) {
+                GameState.guavaNests[i] = GameState.guavaNests[GameState.guavaNests.length - 1]; GameState.guavaNests.pop();
+            }
+        }
+    }
+
+    // Prickle Pear Tyrant: cactus pods
+    if (GameState.cactusPods) {
+        for (let i = GameState.cactusPods.length - 1; i >= 0; i--) {
+            const pod = GameState.cactusPods[i];
+            pod.timer -= dt;
+            pod.pulseTimer += dt;
+            if (pod.timer <= 0) {
+                GameState.cactusPods[i] = GameState.cactusPods[GameState.cactusPods.length - 1]; GameState.cactusPods.pop();
+            } else {
+                const pulse = 0.5 + 0.5 * Math.sin(pod.pulseTimer / 300);
+                // Draw pod
+                c.save();
+                c.globalAlpha = 0.55 + 0.2 * pulse;
+                c.beginPath(); c.arc(pod.x, pod.y, pod.radius, 0, Math.PI * 2);
+                c.fillStyle = 'rgba(39,174,96,0.25)'; c.fill();
+                c.strokeStyle = '#27ae60'; c.lineWidth = 2 + pulse * 2; c.stroke();
+                // Spines on pod
+                for (let s = 0; s < 8; s++) {
+                    const ang = (s / 8) * Math.PI * 2;
+                    c.beginPath();
+                    c.moveTo(pod.x + Math.cos(ang) * pod.radius, pod.y + Math.sin(ang) * pod.radius);
+                    c.lineTo(pod.x + Math.cos(ang) * (pod.radius + 8 + pulse * 4), pod.y + Math.sin(ang) * (pod.radius + 8 + pulse * 4));
+                    c.strokeStyle = '#1a7a41'; c.lineWidth = 2; c.stroke();
+                }
+                c.restore();
+                // Pulse damage to player when inside pod
+                if (pod.pulseTimer > 600) {
+                    pod.pulseTimer = 0;
+                    const dist = Math.hypot(GameState.player.x - pod.x, GameState.player.y - pod.y);
+                    if (dist < pod.radius + GameState.player.radius) {
+                        GameState.player.takeDamage(pod.damage);
                     }
                 }
             }
@@ -464,13 +647,20 @@ function animate() {
             if (dist - enemy.radius - proj.radius < 0) {
 
                 if (GameState.player.hasStaticField && Math.random() < 0.2) {
+                    const lightningLines = [];
                     GameState.enemies.forEach(nearby => {
                         if (Math.hypot(nearby.x - enemy.x, nearby.y - enemy.y) < 150) {
                             nearby.takeHit(proj.damage * 0.5, 0, 0);
                             addDamageNumber(nearby.x, nearby.y - 20, Math.floor(proj.damage * 0.5), '#00f2ff');
-                            c.beginPath(); c.moveTo(enemy.x, enemy.y); c.lineTo(nearby.x, nearby.y); c.strokeStyle = '#00f2ff'; c.stroke();
+                            lightningLines.push([enemy.x, enemy.y, nearby.x, nearby.y]);
                         }
                     });
+                    if (lightningLines.length) {
+                        c.beginPath();
+                        lightningLines.forEach(([x1, y1, x2, y2]) => { c.moveTo(x1, y1); c.lineTo(x2, y2); });
+                        c.strokeStyle = '#00f2ff';
+                        c.stroke();
+                    }
                 }
 
                 if (proj.aoe > 0) {
@@ -529,6 +719,11 @@ function animate() {
                         damageColor = '#ff0';
                     }
 
+                    // Hit-stop: brief slow-motion on big hits for satisfying feedback
+                    if (finalDamage > 80 && GameState.slowMotion.timer <= 0) {
+                        GameState.slowMotion = { multiplier: 0.15, timer: 80 };
+                    }
+
                     enemy.takeHit(finalDamage, proj.knockback, Math.atan2(enemy.y - proj.y, enemy.x - proj.x));
                     addDamageNumber(enemy.x, enemy.y - 20, Math.floor(finalDamage), damageColor);
                     proj.hitList.add(enemy);
@@ -571,11 +766,15 @@ function animate() {
         const enemy = GameState.enemies[i];
         if (enemy.hp <= 0) {
             createExplosion(enemy.x, enemy.y, enemy.color, 8);
+            AudioEngine.playDeath(enemy.radius);
             // PHASE 3: Check for any boss type
-            if (enemy.id === 'boss' || enemy.id === 'melon_monarch' || enemy.id === 'citrus_king' || enemy.id === 'berry_baron') {
+            if (enemy.id === 'boss' || enemy.id === 'melon_monarch' || enemy.id === 'citrus_king' || enemy.id === 'berry_baron' || enemy.id === 'prickle_tyrant') {
                 GameState.activeBoss = null;
                 UIManager.triggerBossLoot();
                 GameState.runStats.bossKills++;
+                AudioEngine.playBossDeath();
+                // Clear cactus pods when Prickle Pear Tyrant dies
+                if (enemy.id === 'prickle_tyrant') GameState.cactusPods = [];
                 // PHASE 2: Boss death effects
                 GameState.screenShake = { intensity: 15, timer: 400 };
                 GameState.slowMotion = { multiplier: 0.3, timer: 500 };
@@ -588,9 +787,14 @@ function animate() {
             if (GameState.combo > GameState.maxCombo) {
                 GameState.maxCombo = GameState.combo;
             }
+            // Combo milestone sounds
+            if (GameState.combo === 25 || GameState.combo === 50 || GameState.combo === 100) {
+                AudioEngine.playComboMilestone(GameState.combo);
+            }
 
             // Update run stats
             GameState.runStats.kills++;
+            Progression.trackKill(enemy.id);
 
             // Track ferment kills
             if (GameState.player.hasFerment) {
@@ -618,7 +822,16 @@ function animate() {
             if (enemy.id === 'boss') {
                 for (let k = 0; k < 10; k++) GameState.expOrbs.push(new ExpOrb(enemy.x + (Math.random() - 0.5) * 50, enemy.y + (Math.random() - 0.5) * 50, boostedXp / 10));
             } else {
-                GameState.expOrbs.push(new ExpOrb(enemy.x, enemy.y, boostedXp));
+                // Famine curse: basic (non-elite) enemies drop no XP
+                const famineActive = GameState.activeCurse?.effect === 'famine';
+                if (!famineActive || enemy.isElite) {
+                    GameState.expOrbs.push(new ExpOrb(enemy.x, enemy.y, boostedXp));
+                }
+                // Elites always drop a bonus orb and count toward elite kills
+                if (enemy.isElite) {
+                    GameState.expOrbs.push(new ExpOrb(enemy.x + 10, enemy.y + 10, boostedXp));
+                    GameState.runStats.eliteKills = (GameState.runStats.eliteKills || 0) + 1;
+                }
             }
             if (enemy.onDeath === 'split') {
                 const swarmerConfig = ENEMY_TYPES.find(e => e.id === 'swarmer');
@@ -639,7 +852,16 @@ function animate() {
             // PHASE 2: Pomegranate multi-split
             if (enemy.onDeath === 'multiSplit') {
                 const swarmerConfig = ENEMY_TYPES.find(e => e.id === 'swarmer');
-                for (let s = 0; s < 5; s++) GameState.enemies.push(new Enemy(enemy.x + (Math.random() - 0.5) * 30, enemy.y + (Math.random() - 0.5) * 30, swarmerConfig));
+                const p = GameState.player;
+                const splitCap = Math.min(150, 20 + (p.level * 3) + (GameState.currentWave * 5));
+                for (let s = 0; s < 5 && GameState.enemies.length < splitCap; s++) {
+                    GameState.enemies.push(new Enemy(enemy.x + (Math.random() - 0.5) * 30, enemy.y + (Math.random() - 0.5) * 30, swarmerConfig));
+                }
+            }
+            // Guava nest: spawns a swarmer-producing zone for 10s
+            if (enemy.onDeath === 'nest') {
+                if (!GameState.guavaNests) GameState.guavaNests = [];
+                GameState.guavaNests.push({ x: enemy.x, y: enemy.y, timer: 10000, spawnTimer: 0 });
             }
             GameState.enemies[i] = GameState.enemies[GameState.enemies.length - 1]; GameState.enemies.pop();
             UIManager.updateHud();
@@ -649,11 +871,57 @@ function animate() {
         }
     }
 
+    // --- Aura effects ---
+    const auraPl = GameState.player;
+    if (auraPl.hasPulpNova) {
+        auraPl.pulpNovaTimer += dt;
+        if (auraPl.pulpNovaTimer >= 8000) {
+            auraPl.pulpNovaTimer = 0;
+            const novaDmg = Math.floor(auraPl.getTotalDmgMult() * 15 * 0.2); // 20% of base damage
+            GameState.enemies.forEach(e => {
+                if (Math.hypot(e.x - auraPl.x, e.y - auraPl.y) < 200) {
+                    e.takeHit(novaDmg, 0, 0);
+                    addDamageNumber(e.x, e.y - 20, novaDmg, '#ffeaa7');
+                }
+            });
+            createExplosion(auraPl.x, auraPl.y, '#ffeaa7', 20);
+        }
+    }
+    if (auraPl.hasCitrusAura) {
+        GameState.enemies.forEach(e => {
+            if (Math.hypot(e.x - auraPl.x, e.y - auraPl.y) < 120) {
+                e.speed = Math.max(e.baseSpeed * 0.8, e.baseSpeed * 0.3);
+            } else {
+                // Gradually restore speed
+                if (e.speed < e.baseSpeed) e.speed = Math.min(e.baseSpeed, e.speed + 0.05);
+            }
+        });
+    }
+    if (auraPl.hasFermentCloud && auraPl.hasFerment && auraPl.fermentKills > 0) {
+        const fermentMilestone = Math.floor(auraPl.fermentKills / 50);
+        if (fermentMilestone > auraPl.lastFermentMilestone) {
+            auraPl.lastFermentMilestone = fermentMilestone;
+            // Slow nearby enemies briefly (visual aura pulse)
+            GameState.enemies.forEach(e => {
+                if (Math.hypot(e.x - auraPl.x, e.y - auraPl.y) < 150) {
+                    e.applySlow(0.4, 1500);
+                }
+            });
+        }
+    }
+
     GameState.enemies.forEach((enemy) => {
         enemy.update(timeScale);
         if (Math.hypot(GameState.player.x - enemy.x, GameState.player.y - enemy.y) < GameState.player.radius + enemy.radius) {
+            // Static Shell: enemy that contacts player takes 30% of damage back
+            if (GameState.player.hasStaticShell) {
+                const shellDmg = Math.floor(GameState.player.getTotalDmgMult() * 15 * 0.3);
+                enemy.takeHit(shellDmg, 0, 0);
+                addDamageNumber(enemy.x, enemy.y - 20, shellDmg, '#00d2d3');
+            }
             if (GameState.player.takeDamage(enemy.damage)) {
                 createExplosion(GameState.player.x, GameState.player.y, '#f00', 5);
+                AudioEngine.playPlayerHit();
                 // PHASE 2: Screen shake on player damage
                 GameState.screenShake = { intensity: 6, timer: 150 };
                 if (enemy.id === 'kamikaze') enemy.hp = 0;
@@ -707,6 +975,24 @@ function animate() {
     }
 
     // ═══════ POST-PROCESSING EFFECTS ═══════
+
+    // Draw laser beam (if active this frame) — fade over time
+    if (GameState.laserBeam) {
+        const beam = GameState.laserBeam;
+        c.save();
+        c.globalAlpha = beam.alpha;
+        // Outer glow
+        c.beginPath(); c.moveTo(beam.x1, beam.y1); c.lineTo(beam.x2, beam.y2);
+        c.strokeStyle = beam.color; c.lineWidth = 8; c.shadowColor = beam.color; c.shadowBlur = 12;
+        c.stroke();
+        // Inner core
+        c.beginPath(); c.moveTo(beam.x1, beam.y1); c.lineTo(beam.x2, beam.y2);
+        c.strokeStyle = '#fff'; c.lineWidth = 2; c.shadowBlur = 0;
+        c.stroke();
+        c.restore();
+        beam.alpha -= 0.18; // Fast fade
+        if (beam.alpha <= 0) GameState.laserBeam = null;
+    }
 
     // Cache vignette gradient (only changes on resize)
     if (gradientCache.lastWidth !== canvas.width || gradientCache.lastHeight !== canvas.height) {

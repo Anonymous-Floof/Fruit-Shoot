@@ -35,12 +35,21 @@ export const MUTATORS = [
     { id: 'drought', name: 'Drought', desc: 'No healing upgrades appear', essenceBonus: 1.2, effect: 'noHeal' },
 ];
 
+// Prestige upgrades (unlocked after first prestige)
+export const PRESTIGE_UPGRADES = [
+    { id: 'pure_extract', name: 'Pure Extract I', desc: '+10% all damage', cost: 1, prestige: 1, maxLevel: 3, apply: (p) => p.dmgMult += 0.10 },
+    { id: 'vintage_reserve', name: 'Vintage Reserve', desc: '+25% essence gain per run', cost: 1, prestige: 1, maxLevel: 3, apply: () => {} }, // Applied in calculateEssenceReward
+    { id: 'concentrate_ii', name: 'Concentrate II', desc: 'Start every run with 1 extra Rare upgrade choice', cost: 2, prestige: 2, maxLevel: 1, apply: (p) => p.rerolls += 2 },
+    { id: 'double_ferment', name: 'Double Ferment', desc: 'Fermentation milestone bonus doubled', cost: 1, prestige: 1, maxLevel: 1, apply: () => {} }, // Applied by engine when ferment fires
+];
+
 // Default progression state
 const DEFAULT_PROGRESSION = {
     essence: 0,
     totalEssence: 0,
     highestLevel: 0,
     highestScore: 0,
+    highestWave: 0,
     totalKills: 0,
     totalBossKills: 0,
     totalRuns: 0,
@@ -51,6 +60,12 @@ const DEFAULT_PROGRESSION = {
     selectedWeapon: 'default',
     selectedMutators: [],
     achievements: {}, // { achievementId: { unlockedAt: timestamp } }
+    selectedClass: 'juicer',
+    runHistory: [], // last 10 runs
+    prestige: 0, // prestige count
+    prestigeUpgrades: {}, // { upgradeId: level }
+    enemyEncounters: {}, // { enemyId: true } — first-seen tracking
+    enemyKills: {}, // { enemyId: count }
 };
 
 class ProgressionManager {
@@ -80,6 +95,23 @@ class ProgressionManager {
         } catch (e) {
             console.warn('Failed to save progression:', e);
         }
+    }
+
+    // Track first encounter with an enemy type (for Bestiary fog)
+    trackEncounter(enemyId) {
+        if (!this.data.enemyEncounters) this.data.enemyEncounters = {};
+        if (!this.data.enemyEncounters[enemyId]) {
+            this.data.enemyEncounters[enemyId] = true;
+            this.save();
+        }
+    }
+
+    // Increment kill count for an enemy type
+    trackKill(enemyId) {
+        if (!this.data.enemyKills) this.data.enemyKills = {};
+        this.data.enemyKills[enemyId] = (this.data.enemyKills[enemyId] || 0) + 1;
+        // Save periodically (every 10 kills) to avoid constant writes
+        if (this.data.enemyKills[enemyId] % 10 === 0) this.save();
     }
 
     // Unlock an achievement
@@ -121,6 +153,7 @@ class ProgressionManager {
                 mutator.apply(player);
             }
         }
+        // Class bonuses are applied by engine.js after this call to avoid circular deps
     }
 
     // Calculate Essence reward for a run
@@ -135,26 +168,108 @@ class ProgressionManager {
             }
         }
 
+        // Vintage Reserve prestige upgrade: +25% per level
+        const vintageLevel = this.data.prestigeUpgrades?.vintage_reserve || 0;
+        if (vintageLevel > 0) base = Math.floor(base * (1 + vintageLevel * 0.25));
+
         return base;
     }
 
-    // End a run and award Essence
-    endRun(score, level, kills, bossKills, combo, playtime) {
-        const essence = this.calculateEssenceReward(score, level, bossKills);
+    // Check if all tier-1 permanent upgrades are maxed (prestige eligibility)
+    canPrestige() {
+        if (!this.data) return false;
+        return PERMANENT_UPGRADES.every(u => (this.data.permanentUpgrades[u.id] || 0) >= u.maxLevel);
+    }
 
-        this.data.essence += essence;
-        this.data.totalEssence += essence;
+    // Perform prestige: reset permanentUpgrades + essence, grant prestige point
+    prestige() {
+        if (!this.canPrestige()) return false;
+        this.data.prestige = (this.data.prestige || 0) + 1;
+        this.data.permanentUpgrades = {};
+        this.data.essence = 0;
+        if (!this.data.prestigeUpgrades) this.data.prestigeUpgrades = {};
+        this.save();
+        return true;
+    }
+
+    // Purchase a prestige upgrade
+    purchasePrestigeUpgrade(upgradeId) {
+        const upgrade = PRESTIGE_UPGRADES.find(u => u.id === upgradeId);
+        if (!upgrade) return false;
+        if ((this.data.prestige || 0) < upgrade.prestige) return false; // Not enough prestiges
+        if (!this.data.prestigeUpgrades) this.data.prestigeUpgrades = {};
+        const currentLevel = this.data.prestigeUpgrades[upgradeId] || 0;
+        if (currentLevel >= upgrade.maxLevel) return false;
+        const cost = upgrade.cost * (currentLevel + 1) * 200; // In essence
+        if (this.data.essence < cost) return false;
+        this.data.essence -= cost;
+        this.data.prestigeUpgrades[upgradeId] = currentLevel + 1;
+        this.save();
+        return true;
+    }
+
+    // Apply prestige upgrades to player
+    applyPrestigeUpgrades(player) {
+        if (!this.data.prestigeUpgrades) return;
+        for (const upgrade of PRESTIGE_UPGRADES) {
+            const level = this.data.prestigeUpgrades[upgrade.id] || 0;
+            for (let i = 0; i < level; i++) {
+                upgrade.apply(player);
+            }
+        }
+    }
+
+    // End a run — no essence is awarded for regular runs (achievements & daily challenges only)
+    endRun(score, level, kills, bossKills, combo, playtime, extraData = {}) {
+        const essence = 0; // Essence earned per run removed; kept for run history display
+
         this.data.totalRuns++;
         this.data.totalKills += kills;
         this.data.totalBossKills += bossKills;
         this.data.playtime += playtime;
 
+        const prevBest = {
+            score: this.data.highestScore,
+            level: this.data.highestLevel,
+            combo: this.data.bestCombo,
+            wave: this.data.highestWave || 0,
+        };
+
         if (level > this.data.highestLevel) this.data.highestLevel = level;
         if (score > this.data.highestScore) this.data.highestScore = score;
         if (combo > this.data.bestCombo) this.data.bestCombo = combo;
+        if ((extraData.wave || 0) > (this.data.highestWave || 0)) this.data.highestWave = extraData.wave || 0;
+
+        // Track classes played and lifetime elite kills
+        if (extraData.classId) {
+            if (!this.data.classesPlayed) this.data.classesPlayed = {};
+            this.data.classesPlayed[extraData.classId] = true;
+        }
+        this.data.totalEliteKills = (this.data.totalEliteKills || 0) + (extraData.eliteKills || 0);
+
+        // Save run history (last 10 runs)
+        const runRecord = {
+            date: Date.now(),
+            score,
+            level,
+            wave: extraData.wave || 0,
+            kills,
+            bossKills,
+            combo,
+            playtime,
+            essence,
+            classId: extraData.classId || 'juicer',
+            curseId: extraData.curseId || null,
+            blessingId: extraData.blessingId || null,
+            damageDealt: extraData.damageDealt || 0,
+            damageTaken: extraData.damageTaken || 0,
+        };
+        if (!this.data.runHistory) this.data.runHistory = [];
+        this.data.runHistory.unshift(runRecord);
+        if (this.data.runHistory.length > 10) this.data.runHistory.pop();
 
         this.save();
-        return essence;
+        return { essence, prevBest };
     }
 
     // Purchase a permanent upgrade

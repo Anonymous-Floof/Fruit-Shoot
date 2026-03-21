@@ -83,9 +83,31 @@ export const DailyChallengeManager = {
         return this.currentChallenge;
     },
 
+    // Detect date manipulation (backwards OR forwards clock changes)
+    isClockTampered(data) {
+        const TOLERANCE = 2 * 60 * 1000;          // 2-minute grace for minor clock drift
+        const MIN_INTERVAL = 13 * 60 * 60 * 1000; // 13 hours minimum between rewards
+        const now = Date.now();
+        const ts = data.lastPlayedTimestamp || 0;
+        if (ts === 0) return false;
+        // Backwards: clock was rolled back
+        if (now < ts - TOLERANCE) return true;
+        // Forwards: not enough real time has elapsed since last play
+        if (now - ts < MIN_INTERVAL) return true;
+        return false;
+    },
+
+    // Record that a daily challenge run has started (used for anti-cheat timestamp)
+    recordChallengeStart() {
+        const data = this.loadDailyChallengeData();
+        data.lastPlayedTimestamp = Date.now();
+        this.saveDailyChallengeData(data);
+    },
+
     // Check if today's challenge has been completed
     isTodayCompleted() {
         const data = this.loadDailyChallengeData();
+        if (this.isClockTampered(data)) return true; // Treat as completed if clock is tampered
         return data.lastCompletedDate === getTodaySeed();
     },
 
@@ -103,6 +125,11 @@ export const DailyChallengeManager = {
         const data = this.loadDailyChallengeData();
         const todaySeed = getTodaySeed();
 
+        // Deny reward if clock was tampered
+        if (this.isClockTampered(data)) return false;
+
+        data.lastPlayedTimestamp = Date.now();
+
         // Update if first completion or new high score
         if (data.lastCompletedDate !== todaySeed || score > data.bestScore) {
             data.lastCompletedDate = todaySeed;
@@ -112,6 +139,7 @@ export const DailyChallengeManager = {
             return true; // New completion
         }
 
+        this.saveDailyChallengeData(data);
         return false; // Already completed with better score
     },
 
@@ -129,6 +157,7 @@ export const DailyChallengeManager = {
             lastCompletedDate: 0,
             bestScore: 0,
             completionCount: 0,
+            lastPlayedTimestamp: 0,
             leaderboard: [] // Top 10 scores
         };
     },

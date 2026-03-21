@@ -3,6 +3,7 @@ import { GameState, c, canvas } from './state.js';
 import { UIManager } from './ui.js';
 import { Settings } from './settings.js';
 import { addDamageNumber } from './engine.js';
+import { AudioEngine } from './audio.js';
 
 export class Player {
     constructor(startX, startY) {
@@ -33,6 +34,11 @@ export class Player {
         this.hasFerment = false;
         this.fermentKills = 0; // Tracks kills for fermentation bonus
         this.hasThorns = false;
+        this.hasCitrusAura = false;
+        this.hasPulpNova = false; this.pulpNovaTimer = 0;
+        this.hasStaticShell = false;
+        this.hasFermentCloud = false;
+        this.lastFermentMilestone = 0; // Tracks last milestone that triggered FermentCloud
         this.critChance = 0;
         this.knockbackMult = 1;
         this.armorMult = 1;
@@ -46,6 +52,7 @@ export class Player {
         this.baseSpeed = 4; this.lastFired = 0; this.regenTimer = 0;
         this.invincible = false; this.invincibilityTimer = 0; this.bladeAngle = 0;
         this.upgradeHistory = {};
+        this.zoneSlow = 1.0; // Multiplier applied by trail zones / acid pools
 
         // PHASE 2: Dash Ability
         this.dashCooldown = 4000; // 4 seconds between dashes
@@ -178,6 +185,8 @@ export class Player {
             this.dashDurationTimer = this.dashDuration;
             this.dashTimer = this.dashCooldown;
             this.invincible = true; // I-frames during dash
+            AudioEngine.playDash();
+            GameState.runStats.dashCount = (GameState.runStats.dashCount || 0) + 1;
         }
 
         // PHASE 2: Update dash state
@@ -195,7 +204,9 @@ export class Player {
             }
         }
 
-        const currentSpeed = this.isDashing ? this.dashSpeed : (this.baseSpeed * this.speedMult);
+        const zoneSlow = this.zoneSlow;
+        this.zoneSlow = 1.0; // Reset each frame; engine.js sets it when player is inside a zone
+        const currentSpeed = this.isDashing ? this.dashSpeed : (this.baseSpeed * this.speedMult * zoneSlow);
         let dx = 0; let dy = 0;
         if (GameState.keys.w) dy -= 1; if (GameState.keys.s) dy += 1;
         if (GameState.keys.a) dx -= 1; if (GameState.keys.d) dx += 1;
@@ -218,6 +229,7 @@ export class Player {
     shoot(weapon) {
         const baseAngle = Math.atan2(GameState.mouse.y - this.y, GameState.mouse.x - this.x);
         this.lastFired = (GameState.currentTime || Date.now());
+        AudioEngine.playShoot(this.currentWeapon);
 
         // PHASE 3: Shotgun Seeds - fires multiple pellets in a spread
         if (this.currentWeapon === 'shotgun') {
@@ -237,7 +249,54 @@ export class Player {
             return;
         }
 
-        // PHASE 3: Laser Zest - fast continuous fire (handled by fire rate, no special logic needed)
+        // Laser Zest - true raycast beam: hits all enemies along the line, no Projectile spawned
+        if (this.currentWeapon === 'laser') {
+            const speed = Math.hypot(canvas.width, canvas.height); // Ray long enough to cross the screen
+            const dmg = Math.floor(weapon.baseDamage * this.getTotalDmgMult());
+            const maxPierce = 1 + this.bonusPierce;
+
+            // Gather enemies sorted by proximity along the ray
+            const hits = [];
+            GameState.enemies.forEach(enemy => {
+                // Project enemy onto ray to get closest point
+                const ex = enemy.x - this.x; const ey = enemy.y - this.y;
+                const t = Math.max(0, ex * Math.cos(baseAngle) + ey * Math.sin(baseAngle));
+                const closestX = this.x + Math.cos(baseAngle) * t;
+                const closestY = this.y + Math.sin(baseAngle) * t;
+                if (Math.hypot(closestX - enemy.x, closestY - enemy.y) < enemy.radius + 2) {
+                    hits.push({ enemy, t });
+                }
+            });
+            hits.sort((a, b) => a.t - b.t);
+
+            let endX = this.x + Math.cos(baseAngle) * speed;
+            let endY = this.y + Math.sin(baseAngle) * speed;
+            for (let i = 0; i < Math.min(hits.length, maxPierce); i++) {
+                const { enemy, t } = hits[i];
+                let finalDamage = dmg;
+                let damageColor = weapon.color;
+                const effectiveCritChance = Math.min(0.5, this.critChance);
+                if (effectiveCritChance > 0 && Math.random() < effectiveCritChance) {
+                    finalDamage *= 2;
+                    damageColor = '#ff0';
+                }
+                enemy.takeHit(finalDamage, weapon.knockback, Math.atan2(enemy.y - this.y, enemy.x - this.x));
+                addDamageNumber(enemy.x, enemy.y - 20, Math.floor(finalDamage), damageColor);
+                GameState.runStats.damageDealt += finalDamage;
+                if (this.hasVampiric) this.hp = Math.min(this.hp + finalDamage * 0.02, this.maxHp);
+                if (this.hasBurn) enemy.applyBurn(3000);
+                if (this.hasChill) enemy.applySlow(0.3, 2000);
+                // Terminate beam at last hit enemy if not piercing further
+                if (i === Math.min(hits.length, maxPierce) - 1) {
+                    endX = this.x + Math.cos(baseAngle) * t;
+                    endY = this.y + Math.sin(baseAngle) * t;
+                }
+            }
+            // Store beam for rendering in engine.js (fades next frame)
+            GameState.laserBeam = { x1: this.x, y1: this.y, x2: endX, y2: endY, alpha: 0.9, color: weapon.color };
+            return;
+        }
+
         // PHASE 3: Boomerang Blade - returning projectile
         if (this.currentWeapon === 'boomerang') {
             const speed = weapon.speed * this.bulletSpeedMult;
@@ -283,11 +342,13 @@ export class Player {
             this.xp -= this.xpToNextLevel;
             this.level++;
             this.xpToNextLevel = Math.floor(this.xpToNextLevel * 1.25);
+            AudioEngine.playLevelUp();
 
             // Wave completion check: every 5 levels = 1 wave
             if (this.level % 5 === 0 && this.level > GameState.lastWaveLevel) {
                 GameState.currentWave++;
                 GameState.lastWaveLevel = this.level;
+                GameState.waveStallTimer = 0; // Reset stall timer on natural wave advance
                 // Wave completion rewards: heal 20% max HP
                 if (!GameState.mutatorEffects.noHeal) {
                     this.hp = Math.min(this.hp + this.maxHp * 0.2, this.maxHp);
@@ -301,6 +362,22 @@ export class Player {
                 // Trigger a spawn burst to increase the intensity of the wave!
                 const burstCount = Math.min(15, 3 + Math.floor(GameState.currentWave * 1.5));
                 GameState.waveBurst = burstCount;
+
+                // The Juicing Hour: activate at wave 15
+                if (GameState.currentWave >= 15 && !GameState.juicingHour?.active) {
+                    GameState.juicingHour = { active: true, timer: 90000, bossInterval: 15000 };
+                    GameState.waveBanner = { text: 'THE JUICING HOUR!', timer: 4000 };
+                }
+
+                // Trigger random event every 4 waves
+                if (!GameState.juicingHour?.active && GameState.currentWave >= (GameState.nextEventWave || 4)) {
+                    // Delay slightly so wave banner shows first
+                    setTimeout(() => {
+                        if (GameState.gameActive && !GameState.paused) {
+                            UIManager.triggerRandomEvent();
+                        }
+                    }, 600);
+                }
             }
 
             if (this.level % 10 === 0) {
@@ -361,7 +438,8 @@ export class Player {
 export class Enemy {
     constructor(x, y, config) {
         this.x = x; this.y = y;
-        const difficultyMult = Math.min(5, 1 + (GameState.score / 8000));
+        const waveMult = 1 + ((GameState.currentWave || 0) * 0.15);
+        const difficultyMult = Math.min(8, (1 + GameState.score / 8000) * waveMult);
         this.id = config.id; this.radius = config.radius; this.color = config.color;
 
         let hpMult = 1;
@@ -403,11 +481,18 @@ export class Enemy {
         } else {
             this.drawFruit();
         }
+        // Elite gold ring
+        if (this.isElite) {
+            c.beginPath(); c.arc(0, 0, this.radius + 5, 0, Math.PI * 2);
+            c.strokeStyle = '#ffd700'; c.lineWidth = 3; c.stroke();
+        }
         c.restore();
         if (this.hp < this.maxHp) {
             const hpPercent = Math.max(0, this.hp / this.maxHp);
-            c.fillStyle = '#222'; c.fillRect(this.x - 15, this.y - this.radius - 8, 30, 4);
-            c.fillStyle = '#ff4757'; c.fillRect(this.x - 15, this.y - this.radius - 8, 30 * hpPercent, 4);
+            const barW = this.isElite ? 40 : 30;
+            c.fillStyle = '#222'; c.fillRect(this.x - barW / 2, this.y - this.radius - 10, barW, 4);
+            c.fillStyle = this.isElite ? '#ffd700' : '#ff4757';
+            c.fillRect(this.x - barW / 2, this.y - this.radius - 10, barW * hpPercent, 4);
         }
     }
 
@@ -498,6 +583,89 @@ export class Enemy {
                 // Mini-fig (spawned by Fig)
                 c.beginPath(); c.arc(0, 0, this.radius, 0, Math.PI * 2); c.fill(); break;
 
+            case 'carambola': {
+                // 5-pointed star (starfruit cross-section)
+                const outerR = this.radius; const innerR = this.radius * 0.45;
+                c.beginPath();
+                for (let i = 0; i < 10; i++) {
+                    const r = i % 2 === 0 ? outerR : innerR;
+                    const ang = (i / 10) * Math.PI * 2 - Math.PI / 2;
+                    i === 0 ? c.moveTo(Math.cos(ang) * r, Math.sin(ang) * r)
+                            : c.lineTo(Math.cos(ang) * r, Math.sin(ang) * r);
+                }
+                c.closePath(); c.fill();
+                // Lighter center
+                c.fillStyle = '#ffe066';
+                c.beginPath();
+                for (let i = 0; i < 10; i++) {
+                    const r = i % 2 === 0 ? outerR * 0.5 : innerR * 0.5;
+                    const ang = (i / 10) * Math.PI * 2 - Math.PI / 2;
+                    i === 0 ? c.moveTo(Math.cos(ang) * r, Math.sin(ang) * r)
+                            : c.lineTo(Math.cos(ang) * r, Math.sin(ang) * r);
+                }
+                c.closePath(); c.fill();
+                break;
+            }
+            case 'persimmon': {
+                // Hexagonal body with orange glow
+                c.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const ang = (i / 6) * Math.PI * 2 - Math.PI / 6;
+                    i === 0 ? c.moveTo(Math.cos(ang) * this.radius, Math.sin(ang) * this.radius)
+                            : c.lineTo(Math.cos(ang) * this.radius, Math.sin(ang) * this.radius);
+                }
+                c.closePath(); c.fill();
+                c.fillStyle = '#ffeaa7';
+                c.beginPath(); c.arc(0, 0, this.radius * 0.45, 0, Math.PI * 2); c.fill();
+                break;
+            }
+            case 'passion_fruit': {
+                // Oval with dotted inner pattern
+                c.save(); c.scale(1, 1.3);
+                c.beginPath(); c.arc(0, 0, this.radius * 0.85, 0, Math.PI * 2); c.fill();
+                c.restore();
+                c.fillStyle = '#fdcb6e';
+                for (let i = 0; i < 5; i++) {
+                    const ang = (i / 5) * Math.PI * 2;
+                    c.beginPath(); c.arc(Math.cos(ang) * this.radius * 0.4, Math.sin(ang) * this.radius * 0.4, 2.5, 0, Math.PI * 2); c.fill();
+                }
+                break;
+            }
+            case 'lychee': {
+                // Textured bumpy sphere
+                c.beginPath(); c.arc(0, 0, this.radius, 0, Math.PI * 2); c.fill();
+                // White shield ring when shielded
+                if (this.shielded) {
+                    c.strokeStyle = 'rgba(255,255,255,0.8)';
+                    c.lineWidth = 3;
+                    c.setLineDash([4, 4]);
+                    c.beginPath(); c.arc(0, 0, this.radius + 5, 0, Math.PI * 2); c.stroke();
+                    c.setLineDash([]);
+                }
+                break;
+            }
+            case 'guava': {
+                // Green rounded square-ish shape
+                c.beginPath();
+                const gr = this.radius * 0.8;
+                c.roundRect(-gr, -gr, gr * 2, gr * 2, gr * 0.4);
+                c.fill();
+                c.fillStyle = '#00b894';
+                c.beginPath(); c.arc(0, 0, this.radius * 0.4, 0, Math.PI * 2); c.fill();
+                break;
+            }
+            case 'rambutan': {
+                // Spiky red orb
+                c.beginPath(); c.arc(0, 0, this.radius * 0.8, 0, Math.PI * 2); c.fill();
+                for (let i = 0; i < 12; i++) {
+                    const ang = (i / 12) * Math.PI * 2;
+                    c.beginPath();
+                    c.moveTo(Math.cos(ang) * this.radius * 0.75, Math.sin(ang) * this.radius * 0.75);
+                    c.lineTo(Math.cos(ang) * (this.radius + 6), Math.sin(ang) * (this.radius + 6));
+                    c.strokeStyle = this.color; c.lineWidth = 2; c.stroke();
+                }
+                break;
+            }
             case 'boss': c.beginPath(); c.arc(0, 0, this.radius, 0, Math.PI * 2); c.fill(); break;
             default: c.beginPath(); c.arc(0, 0, this.radius, 0, Math.PI * 2); c.fill();
         }
@@ -676,6 +844,64 @@ export class Enemy {
                 this.y += Math.sin(angle) * this.speed * effectiveTimeScale;
                 break;
 
+            // Persimmon: gravity attractor — bends nearby projectiles toward it
+            case 'gravity':
+                this.x += Math.cos(angle) * this.speed * effectiveTimeScale;
+                this.y += Math.sin(angle) * this.speed * effectiveTimeScale;
+                // Bend nearby projectiles toward this enemy (handled in Projectile.update via scan)
+                break;
+
+            // Passion Fruit: mimic — shoots same-pattern projectiles as the player's weapon
+            case 'mimic':
+                this.behaviorTimer += effectiveTimeScale * 16;
+                if (this.behaviorTimer > 2500) {
+                    this.behaviorTimer = 0;
+                    const mimicAngle = Math.atan2(p.y - this.y, p.x - this.x);
+                    GameState.enemyProjectiles.push(new EnemyProjectile(
+                        this.x, this.y, 5, '#fd79a8',
+                        { x: Math.cos(mimicAngle) * 5, y: Math.sin(mimicAngle) * 5 },
+                        this.damage
+                    ));
+                    // Extra shots based on player's bonusProjectiles (simplified)
+                    if (p.bonusProjectiles > 0) {
+                        for (let i = 1; i <= Math.min(2, p.bonusProjectiles); i++) {
+                            const spread = i * 0.2;
+                            for (const sign of [-1, 1]) {
+                                GameState.enemyProjectiles.push(new EnemyProjectile(
+                                    this.x, this.y, 4, '#fd79a8',
+                                    { x: Math.cos(mimicAngle + sign * spread) * 4, y: Math.sin(mimicAngle + sign * spread) * 4 },
+                                    this.damage * 0.7
+                                ));
+                            }
+                        }
+                    }
+                }
+                this.x += Math.cos(angle) * this.speed * effectiveTimeScale;
+                this.y += Math.sin(angle) * this.speed * effectiveTimeScale;
+                break;
+
+            // Lychee: shield — 1.5s invincibility every 6 seconds
+            case 'shield':
+                if (!this.shieldTimer) this.shieldTimer = 6000;
+                this.shieldTimer -= effectiveTimeScale * 16;
+                if (this.shieldTimer <= 0 && !this.shielded) {
+                    this.shielded = true;
+                    this.shieldTimer = 1500; // Shield lasts 1.5s
+                } else if (this.shielded && this.shieldTimer <= 0) {
+                    this.shielded = false;
+                    this.shieldTimer = 6000; // Reset cooldown
+                }
+                this.x += Math.cos(angle) * this.speed * effectiveTimeScale;
+                this.y += Math.sin(angle) * this.speed * effectiveTimeScale;
+                break;
+
+            // Rambutan: shieldBurst — 25% chance on hit to fire 6 projectiles
+            // (burst handled in takeHit; just move normally here)
+            case 'shieldBurst':
+                this.x += Math.cos(angle) * this.speed * effectiveTimeScale;
+                this.y += Math.sin(angle) * this.speed * effectiveTimeScale;
+                break;
+
             default:
                 this.x += Math.cos(angle) * this.speed * effectiveTimeScale;
                 this.y += Math.sin(angle) * this.speed * effectiveTimeScale;
@@ -697,13 +923,37 @@ export class Enemy {
         this.draw();
     }
 
+    makeElite() {
+        this.isElite = true;
+        this.hp *= 3;
+        this.maxHp = this.hp;
+        this.speed *= 1.5;
+        this.baseSpeed = this.speed;
+        this.xpValue *= 2;
+    }
+
     takeHit(damage, kbForce, angle) {
+        // Lychee shield: block damage while shielded
+        if (this.shielded) return;
+
         this.hp -= damage; this.flashTimer = 3;
         const force = kbForce / this.mass;
         this.knockbackX += Math.cos(angle) * force; this.knockbackY += Math.sin(angle) * force;
 
         // Track damage dealt
         GameState.runStats.damageDealt += damage;
+
+        // Rambutan shieldBurst: 25% chance to fire 6 projectiles outward on hit
+        if (this.behavior === 'shieldBurst' && Math.random() < 0.25) {
+            for (let i = 0; i < 6; i++) {
+                const ang = (i / 6) * Math.PI * 2;
+                GameState.enemyProjectiles.push(new EnemyProjectile(
+                    this.x, this.y, 4, '#e74c3c',
+                    { x: Math.cos(ang) * 4, y: Math.sin(ang) * 4 },
+                    this.damage * 0.5
+                ));
+            }
+        }
     }
 
     applyBurn(duration) {
@@ -1028,15 +1278,31 @@ export class CitrusKing extends Enemy {
                 this.spiralAngle = 0;
             }
 
-            // Phase 3: Dash attack
-            if (this.currentPhase === 3 && this.dashCooldown <= 0 && dist > 200) {
-                this.dashCooldown = 5000;
-                this.x += Math.cos(angle) * 100;
-                this.y += Math.sin(angle) * 100;
-                // Particles for dash
-                for (let i = 0; i < 10; i++) {
-                    GameState.particles.push(new Particle(this.x, this.y, 4, this.color,
-                        { x: (Math.random() - 0.5) * 6, y: (Math.random() - 0.5) * 6 }));
+            // Phase 3: Dash attack (with telegraph warning in the last 400ms)
+            if (this.currentPhase === 3 && dist > 200) {
+                if (this.dashCooldown > 0 && this.dashCooldown < 400) {
+                    // Telegraph: pulsing arrow from boss toward player
+                    const progress = 1 - (this.dashCooldown / 400);
+                    c.save();
+                    c.strokeStyle = `rgba(243, 156, 18, ${0.5 + progress * 0.5})`;
+                    c.lineWidth = 3 + progress * 2;
+                    c.setLineDash([8, 4]);
+                    c.beginPath();
+                    c.moveTo(this.x, this.y);
+                    c.lineTo(p.x, p.y);
+                    c.stroke();
+                    c.setLineDash([]);
+                    c.restore();
+                }
+                if (this.dashCooldown <= 0) {
+                    this.dashCooldown = 5000;
+                    this.x += Math.cos(angle) * 100;
+                    this.y += Math.sin(angle) * 100;
+                    // Particles for dash
+                    for (let i = 0; i < 10; i++) {
+                        GameState.particles.push(new Particle(this.x, this.y, 4, this.color,
+                            { x: (Math.random() - 0.5) * 6, y: (Math.random() - 0.5) * 6 }));
+                    }
                 }
             }
 
@@ -1243,10 +1509,20 @@ export class BerryBaron extends Enemy {
                 this.phaseAlpha = 1;
             }
         } else if (this.state === 3) {
-            // Attack after teleport
+            // Telegraph: 500ms pulsing warning before attack fires
+            if (this.stateTimer < 500) {
+                const progress = (this.stateTimer % 200) / 200;
+                c.beginPath();
+                c.arc(this.x, this.y, (this.radius + 20) + progress * 30, 0, Math.PI * 2);
+                c.strokeStyle = `rgba(155, 89, 182, ${0.9 - progress * 0.6})`;
+                c.lineWidth = 4;
+                c.stroke();
+            }
+
+            // Attack after telegraph
             if (this.currentPhase === 1) {
                 // Phase 1: Berry ring (8 projectiles)
-                if (this.stateTimer < 50) {
+                if (this.stateTimer >= 500 && this.stateTimer < 550) {
                     for (let i = 0; i < 8; i++) {
                         const ringAngle = (i / 8) * Math.PI * 2;
                         GameState.enemyProjectiles.push(new EnemyProjectile(
@@ -1257,7 +1533,7 @@ export class BerryBaron extends Enemy {
                 }
             } else if (this.currentPhase === 2) {
                 // Phase 2: Berry cage that constricts
-                if (this.stateTimer < 50) {
+                if (this.stateTimer >= 500 && this.stateTimer < 550) {
                     if (!GameState.berryWalls) GameState.berryWalls = [];
                     const cageRadius = 150;
                     for (let i = 0; i < 12; i++) {
@@ -1279,7 +1555,7 @@ export class BerryBaron extends Enemy {
                 }
             } else if (this.currentPhase === 3) {
                 // Phase 3: Leave shadow clone
-                if (this.stateTimer < 50) {
+                if (this.stateTimer >= 500 && this.stateTimer < 550) {
                     if (!GameState.shadowClones) GameState.shadowClones = [];
                     GameState.shadowClones.push({
                         x: this.prevX,
@@ -1294,7 +1570,7 @@ export class BerryBaron extends Enemy {
                 }
             }
 
-            if (this.stateTimer > 600) {
+            if (this.stateTimer > 1100) {
                 this.state = 0;
                 this.stateTimer = 0;
                 const cooldownTime = this.currentPhase === 3 ? 2500 : (this.currentPhase === 2 ? 3500 : 4000);
@@ -1350,7 +1626,15 @@ export class Projectile {
         c.save(); c.translate(this.x, this.y); c.rotate(this.angle);
         c.beginPath(); c.moveTo(this.radius, 0); c.quadraticCurveTo(0, this.radius, -this.radius, 0);
         c.quadraticCurveTo(0, -this.radius, this.radius, 0);
-        c.fillStyle = this.color; c.fill(); c.restore();
+        // Boomerang glows warm orange when returning
+        c.fillStyle = (this.isBoomerang && this.returning) ? '#ff6348' : this.color;
+        c.fill();
+        // Extra glow ring when returning
+        if (this.isBoomerang && this.returning) {
+            c.beginPath(); c.arc(0, 0, this.radius + 3, 0, Math.PI * 2);
+            c.strokeStyle = 'rgba(255,99,72,0.5)'; c.lineWidth = 2; c.stroke();
+        }
+        c.restore();
     }
     update(timeScale) {
         // PHASE 3: Boomerang return behavior
@@ -1420,6 +1704,18 @@ export class Projectile {
             }
         }
 
+        // Persimmon gravity: bend projectile trajectory toward nearby Persimmon enemies
+        for (const enemy of GameState.enemies) {
+            if (enemy.behavior === 'gravity' && enemy.hp > 0) {
+                const dist = Math.hypot(enemy.x - this.x, enemy.y - this.y);
+                if (dist < 150 && dist > 0) {
+                    const pull = 0.08 / dist;
+                    this.velocity.x += (enemy.x - this.x) * pull * timeScale;
+                    this.velocity.y += (enemy.y - this.y) * pull * timeScale;
+                }
+            }
+        }
+
         this.draw(); this.x += this.velocity.x * timeScale; this.y += this.velocity.y * timeScale;
     }
 }
@@ -1469,9 +1765,187 @@ export class ExpOrb {
         if (this.magnetized) {
             const angle = Math.atan2(p.y - this.y, p.x - this.x);
             this.x += Math.cos(angle) * 12 * timeScale; this.y += Math.sin(angle) * 12 * timeScale;
-            if (dist < p.radius + 5) { p.gainXp(this.value); return true; }
+            if (dist < p.radius + 5) {
+                p.gainXp(this.value);
+                GameState.runStats.orbsCollected = (GameState.runStats.orbsCollected || 0) + 1;
+                return true;
+            }
         }
         return false;
+    }
+}
+
+// Prickle Pear Tyrant — 5th Boss
+export class PricklePearTyrant extends Enemy {
+    constructor(x, y) {
+        super(x, y, { id: 'prickle_tyrant', radius: 42, color: '#27ae60', hp: 100, speed: 1.0, xp: 700, spawnWeight: 0, mass: 130 });
+        this.bossName = 'Prickle Pear Tyrant';
+        const p = GameState.player;
+        const weapon = WEAPON_TYPES[p.currentWeapon];
+        const estDPS = (weapon.baseDamage * p.dmgMult) * (1000 / (weapon.fireDelay / p.fireRateMult)) * (1 + p.bonusProjectiles);
+        const runTimeMinutes = (Date.now() - GameState.runStats.startTime) / 60000;
+        const timeScaleFactor = Math.pow(1.15, Math.max(0, runTimeMinutes - 15));
+
+        this.maxHp = Math.floor((estDPS * 22 + p.level * 240) * timeScaleFactor);
+        this.hp = this.maxHp;
+        this.damage = Math.floor(Math.max(20, p.maxHp / 4) * timeScaleFactor);
+
+        this.state = 0; // 0 = chase, 1 = thorn ring, 2 = plant pods
+        this.stateTimer = 0;
+        this.ringCooldown = 0;
+        this.podCooldown = 0;
+        this.currentPhase = 1;
+        this.baseSpeed = this.speed;
+        this.spineAngle = 0; // rotating spine visual
+    }
+
+    _calcHP() { return this.hp / this.maxHp; }
+
+    update(timeScale) {
+        const p = GameState.player;
+        const ms = timeScale * 16.67;
+        this.stateTimer += ms;
+        this.ringCooldown -= ms;
+        this.podCooldown -= ms;
+        this.spineAngle += 0.012 * timeScale;
+
+        // Phase transitions
+        const hpPct = this._calcHP();
+        if (hpPct <= 0.3 && this.currentPhase < 3) {
+            this.currentPhase = 3;
+            this.speed = this.baseSpeed * 1.4;
+        } else if (hpPct <= 0.6 && this.currentPhase < 2) {
+            this.currentPhase = 2;
+            this.speed = this.baseSpeed * 1.15;
+        }
+
+        if (this.state === 0) {
+            // Chase
+            const angle = Math.atan2(p.y - this.y, p.x - this.x);
+            this.x += Math.cos(angle) * this.speed * timeScale;
+            this.y += Math.sin(angle) * this.speed * timeScale;
+
+            if (this.ringCooldown <= 0) {
+                this.state = 1; this.stateTimer = 0;
+                this.ringCooldown = this.currentPhase >= 3 ? 2500 : 4000;
+            } else if (this.currentPhase >= 2 && this.podCooldown <= 0) {
+                this.state = 2; this.stateTimer = 0;
+                this.podCooldown = 6000;
+            }
+        } else if (this.state === 1) {
+            // Thorn ring burst
+            if (this.stateTimer > 400 && this.stateTimer < 410) {
+                const count = this.currentPhase >= 3 ? 20 : 16;
+                for (let i = 0; i < count; i++) {
+                    const ang = (i / count) * Math.PI * 2;
+                    const speed = this.currentPhase >= 3 ? 4.5 : 3.5;
+                    GameState.enemyProjectiles.push(new EnemyProjectile(
+                        this.x, this.y, 5, '#2ecc71',
+                        { x: Math.cos(ang) * speed, y: Math.sin(ang) * speed },
+                        this.damage
+                    ));
+                }
+                // Phase 3: extra rings from screen edges
+                if (this.currentPhase >= 3) {
+                    const edges = [
+                        { x: canvas.width / 2, y: 0 },
+                        { x: canvas.width / 2, y: canvas.height },
+                        { x: 0, y: canvas.height / 2 },
+                        { x: canvas.width, y: canvas.height / 2 },
+                    ];
+                    for (const edge of edges) {
+                        const count2 = 8;
+                        for (let i = 0; i < count2; i++) {
+                            const ang = (i / count2) * Math.PI * 2;
+                            GameState.enemyProjectiles.push(new EnemyProjectile(
+                                edge.x, edge.y, 4, '#52b788',
+                                { x: Math.cos(ang) * 3, y: Math.sin(ang) * 3 },
+                                Math.floor(this.damage * 0.6)
+                            ));
+                        }
+                    }
+                }
+            }
+            if (this.stateTimer > 600) { this.state = 0; this.stateTimer = 0; }
+        } else if (this.state === 2) {
+            // Plant cactus pods at 4 positions around the arena
+            if (this.stateTimer > 300 && this.stateTimer < 310) {
+                if (!GameState.cactusPods) GameState.cactusPods = [];
+                const podPositions = [
+                    { x: canvas.width * 0.25, y: canvas.height * 0.25 },
+                    { x: canvas.width * 0.75, y: canvas.height * 0.25 },
+                    { x: canvas.width * 0.25, y: canvas.height * 0.75 },
+                    { x: canvas.width * 0.75, y: canvas.height * 0.75 },
+                ];
+                for (const pos of podPositions) {
+                    GameState.cactusPods.push({
+                        x: pos.x, y: pos.y, radius: 50,
+                        timer: 7000, pulseTimer: 0,
+                        damage: Math.floor(this.damage * 0.3),
+                    });
+                }
+            }
+            if (this.stateTimer > 500) { this.state = 0; this.stateTimer = 0; }
+        }
+
+        // Knockback decay + boundary clamping
+        this.x += this.knockbackX * timeScale; this.y += this.knockbackY * timeScale;
+        this.knockbackX *= 0.8; this.knockbackY *= 0.8;
+        this.x = Math.max(42, Math.min(canvas.width - 42, this.x));
+        this.y = Math.max(42, Math.min(canvas.height - 42, this.y));
+
+        this.draw();
+        this._drawPrickle();
+    }
+
+    _drawPrickle() {
+        c.save();
+        c.translate(this.x, this.y);
+
+        // Oval body
+        c.scale(1, 1.25);
+        c.fillStyle = this.color;
+        c.beginPath(); c.arc(0, 0, this.radius, 0, Math.PI * 2); c.fill();
+
+        // Inner highlight
+        c.fillStyle = '#52b788';
+        c.beginPath(); c.arc(0, 0, this.radius * 0.55, 0, Math.PI * 2); c.fill();
+
+        c.restore();
+
+        // Spines (thin triangles radiating outward)
+        const spineCount = 12;
+        for (let i = 0; i < spineCount; i++) {
+            const ang = this.spineAngle + (i / spineCount) * Math.PI * 2;
+            const innerR = this.radius * 0.9;
+            const outerR = this.radius + 14;
+            const side = 4;
+            const perpAng = ang + Math.PI / 2;
+
+            c.fillStyle = '#1a7a41';
+            c.beginPath();
+            c.moveTo(
+                this.x + Math.cos(ang) * outerR,
+                this.y + Math.sin(ang) * outerR
+            );
+            c.lineTo(
+                this.x + Math.cos(perpAng) * side + Math.cos(ang) * innerR,
+                this.y + Math.sin(perpAng) * side + Math.sin(ang) * innerR
+            );
+            c.lineTo(
+                this.x - Math.cos(perpAng) * side + Math.cos(ang) * innerR,
+                this.y - Math.sin(perpAng) * side + Math.sin(ang) * innerR
+            );
+            c.closePath();
+            c.fill();
+        }
+
+        // HP bar
+        const bw = this.radius * 2.5;
+        const bx = this.x - bw / 2;
+        const by = this.y - this.radius * 1.3 - 8;
+        c.fillStyle = '#222'; c.fillRect(bx, by, bw, 5);
+        c.fillStyle = '#e74c3c'; c.fillRect(bx, by, bw * (this.hp / this.maxHp), 5);
     }
 }
 

@@ -28,6 +28,27 @@ export const ACHIEVEMENTS = [
     { id: 'ghost', name: 'Ghost', desc: 'Reach level 5 without taking damage', reward: 1000, icon: '👻', check: (stats) => stats.level >= 5 && stats.damageTaken === 0 },
     { id: 'mad_combo', name: 'Mad Combo', desc: 'Reach 500 combo', reward: 600, icon: '🤯', check: (stats) => stats.maxCombo >= 500 },
     { id: 'no_life', name: 'No Life', desc: 'Reach 8000 combo', reward: 1200, icon: '🐱‍👤', check: (stats) => stats.maxCombo >= 8000 },
+
+    // New Phase C achievements
+    { id: 'elite_hunter', name: 'Elite Hunter', desc: 'Kill 50 Elite enemies', reward: 400, icon: '⭐', check: (stats) => (stats.eliteKills || 0) >= 50 },
+    { id: 'elite_hunter_ii', name: 'Elite Exterminator', desc: 'Kill 500 Elite enemies total', reward: 800, icon: '🌟', check: (stats) => (stats.totalEliteKills || 0) >= 500 },
+    { id: 'second_press', name: 'Second Press', desc: 'Achieve your first Prestige', reward: 1000, icon: '🏅', check: (stats) => (stats.prestige || 0) >= 1 },
+    { id: 'triple_distilled', name: 'Triple Distilled', desc: 'Prestige 3 times', reward: 2000, icon: '🥇', check: (stats) => (stats.prestige || 0) >= 3 },
+    { id: 'blessed_and_cursed', name: 'Blessed and Cursed', desc: 'Complete a run with both a curse and a blessing active', reward: 400, icon: '⚖️', check: (stats) => stats.hadCurseAndBlessing },
+    { id: 'sonic_juice', name: 'Sonic Juice', desc: 'Dash 100 times in one run', reward: 350, icon: '💨', check: (stats) => (stats.dashCount || 0) >= 100 },
+    { id: 'glutton', name: 'Glutton', desc: 'Collect 1000 XP orbs in one run', reward: 350, icon: '🍬', check: (stats) => (stats.orbsCollected || 0) >= 1000 },
+    { id: 'weathered', name: 'Weathered', desc: 'Complete 100 total runs', reward: 1000, icon: '🗓️', check: (stats) => (Progression.data.totalRuns || 0) >= 100 },
+    { id: 'speed_blend', name: 'Speed Blend', desc: 'Reach level 20 in under 8 minutes', reward: 600, icon: '🏎️', check: (stats) => stats.level >= 20 && stats.runTime < 480000 },
+    { id: 'wave_legend', name: 'Wave Legend', desc: 'Reach Wave 15', reward: 1500, icon: '🌊', check: (stats) => stats.currentWave >= 15 },
+    { id: 'boss_trio', name: 'Boss Trio', desc: 'Kill 3 bosses in a single run', reward: 600, icon: '👹', check: (stats) => stats.bossKills >= 3 },
+    { id: 'prickle_proof', name: 'Prickle Proof', desc: 'Defeat the Prickle Pear Tyrant without being hit by a cactus pod', reward: 800, icon: '🌵', check: (stats) => stats.defeatedPrickleClean },
+    { id: 'class_act', name: 'Class Act', desc: 'Play a run with each starting class', reward: 500, icon: '🎭', check: (stats) => (stats.classesPlayed || 0) >= 5 },
+    { id: 'combo_streak', name: 'Combo Streak', desc: 'Get 5 combos over 75 in a single run', reward: 600, icon: '🎆', check: (stats) => (stats.highCombos || 0) >= 5 },
+    { id: 'run_veteran', name: 'Run Veteran', desc: 'Complete 25 total runs', reward: 500, icon: '🎗️', check: (stats) => (Progression.data.totalRuns || 0) >= 25 },
+    { id: 'massacre', name: 'Massacre', desc: 'Kill 10000 enemies total', reward: 1500, icon: '☠️', check: (stats) => (stats.totalKills || 0) >= 10000 },
+    { id: 'big_spender', name: 'Big Spender', desc: 'Spend 10000 total essence in the shop', reward: 600, icon: '💸', check: (stats) => (Progression.data.totalEssence || 0) >= 10000 },
+    { id: 'blender_veteran', name: 'Blender Veteran', desc: 'Survive for 30 minutes in a single run', reward: 700, icon: '⏳', check: (stats) => stats.runTime >= 1800000 },
+    { id: 'full_arsenal', name: 'Full Arsenal', desc: 'Unlock all weapons in the shop', reward: 500, icon: '🗝️', check: (stats) => (stats.unlockedWeapons || 0) >= 6 },
 ];
 
 // Check for newly unlocked achievements
@@ -64,10 +85,20 @@ export function getAchievementStats(GameState) {
         hasGlassCannon: GameState.mutatorEffects.glassCannon || false,
         highCombos: GameState.runStats.highCombos || 0,
         currentWave: GameState.currentWave || 1,
-        // Lifetime stats from Progression (includes current run kills/bossKills added at endRun)
+        // Lifetime stats
         totalKills: (Progression.data.totalKills || 0) + GameState.runStats.kills,
         totalBossKills: (Progression.data.totalBossKills || 0) + GameState.runStats.bossKills,
         totalEssenceEarned: Progression.data.totalEssence || 0,
+        // New Phase C stats
+        eliteKills: GameState.runStats.eliteKills || 0,
+        totalEliteKills: (Progression.data.totalEliteKills || 0) + (GameState.runStats.eliteKills || 0),
+        dashCount: GameState.runStats.dashCount || 0,
+        orbsCollected: GameState.runStats.orbsCollected || 0,
+        prestige: Progression.data.prestige || 0,
+        hadCurseAndBlessing: !!(GameState.activeCurse && GameState.activeBlessing),
+        defeatedPrickleClean: GameState.runStats.defeatedPrickleClean || false,
+        classesPlayed: Object.keys(Progression.data.classesPlayed || {}).length,
+        unlockedWeapons: Progression.data.unlockedWeapons?.length || 1,
     };
 }
 
