@@ -346,6 +346,7 @@ function animate() {
         newUnlocks.forEach(achievement => {
             // Try to unlock (returns true if newly unlocked)
             if (Progression.unlockAchievement(achievement.id, achievement.name, achievement.reward)) {
+                GameState.runStats.achievementEssence += achievement.reward;
                 UIManager.showAchievementPopup(achievement);
             }
         });

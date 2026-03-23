@@ -88,19 +88,19 @@ export const DailyChallengeManager = {
         const TOLERANCE = 2 * 60 * 1000;          // 2-minute grace for minor clock drift
         const MIN_INTERVAL = 13 * 60 * 60 * 1000; // 13 hours minimum between rewards
         const now = Date.now();
-        const ts = data.lastPlayedTimestamp || 0;
-        if (ts === 0) return false;
-        // Backwards: clock was rolled back
-        if (now < ts - TOLERANCE) return true;
-        // Forwards: not enough real time has elapsed since last play
-        if (now - ts < MIN_INTERVAL) return true;
+        const startTs = data.lastStartTimestamp || 0;
+        const completedTs = data.lastPlayedTimestamp || 0;
+        // Backwards: clock was rolled back (compare against last run start)
+        if (startTs !== 0 && now < startTs - TOLERANCE) return true;
+        // Forwards: not enough real time has elapsed since last completion
+        if (completedTs !== 0 && now - completedTs < MIN_INTERVAL) return true;
         return false;
     },
 
     // Record that a daily challenge run has started (used for anti-cheat timestamp)
     recordChallengeStart() {
         const data = this.loadDailyChallengeData();
-        data.lastPlayedTimestamp = Date.now();
+        data.lastStartTimestamp = Date.now();
         this.saveDailyChallengeData(data);
     },
 

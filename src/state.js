@@ -47,6 +47,7 @@ export const GameState = {
         damageTaken: 0,
         weaponsUsed: new Set(), // Track weapon types used
         highCombos: 0, // Count of combos >= 75
+        achievementEssence: 0,
     },
 
     // Mutator Effects (set at run start)
@@ -117,6 +118,7 @@ export const GameState = {
             dashCount: 0,
             orbsCollected: 0,
             eliteKills: 0,
+            achievementEssence: 0,
         };
 
         // Mutator effects are set by engine.initGame

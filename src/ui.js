@@ -905,6 +905,7 @@ export const UIManager = {
         // Show run summary modal
         this._showRunSummary({
             isVictory, minutes, seconds, essence, dailyBonusHtml, prevBest,
+            achievementEssence: GameState.runStats.achievementEssence,
             score: GameState.score,
             level: p.level,
             wave: GameState.currentWave,
@@ -980,7 +981,7 @@ export const UIManager = {
             </div>
             <div class="run-essence-earned">
                 <span>Essence Earned:</span>
-                <span style="color:#a29bfe; font-size:1.8rem;"> +${data.essence} 💎</span>
+                <span style="color:#a29bfe; font-size:1.8rem;"> +${data.achievementEssence} 💎</span>
                 ${data.dailyBonusHtml}
             </div>
         `;
