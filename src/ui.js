@@ -16,8 +16,6 @@ export const UIManager = {
     },
     // Cache DOM Elements
     uiLayer: document.querySelector('#uiLayer'),
-    // Cache DOM Elements
-    uiLayer: document.querySelector('#uiLayer'),
     mainMenu: document.querySelector('#mainMenu'),
     pauseModal: document.querySelector('#pauseModal'),
     upgradeModal: document.querySelector('#upgradeModal'),
@@ -56,6 +54,10 @@ export const UIManager = {
 
     // Boss HUD Name
     bossNameEl: document.getElementById('bossName'),
+
+    // Wave Progress
+    waveProgressFill: document.getElementById('waveProgressFill'),
+    waveNumEl: document.getElementById('waveNum'),
 
     currentUpgradeContext: null, // 'level' or 'boss'
 
@@ -653,14 +655,12 @@ export const UIManager = {
         }
 
         // Wave progress bar
-        const waveProgressFill = document.getElementById('waveProgressFill');
-        const waveNumEl = document.getElementById('waveNum');
-        if (waveProgressFill && waveNumEl) {
-            waveNumEl.textContent = GameState.currentWave + 1;
+        if (this.waveProgressFill && this.waveNumEl) {
+            this.waveNumEl.textContent = GameState.currentWave + 1;
             // Within-wave progress: levels completed since last wave boundary
             const levelsIntoWave = p.level % 5 === 0 ? 0 : (p.level - 1) % 5;
-            waveProgressFill.style.width = `${(levelsIntoWave / 5) * 100}%`;
-            waveProgressFill.style.background = GameState.juicingHour?.active
+            this.waveProgressFill.style.width = `${(levelsIntoWave / 5) * 100}%`;
+            this.waveProgressFill.style.background = GameState.juicingHour?.active
                 ? 'linear-gradient(90deg, #e74c3c, #ffd700)'
                 : 'linear-gradient(90deg, #1a9c6e, #55efc4)';
         }
@@ -863,6 +863,7 @@ export const UIManager = {
 
     gameOver(isVictory = false) {
         GameState.gameActive = false;
+        AudioEngine.cancelAll();
 
         // Calculate run stats
         const runTime = Date.now() - GameState.runStats.startTime;

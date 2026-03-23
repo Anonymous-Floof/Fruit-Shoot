@@ -20,8 +20,9 @@ window.addEventListener('keyup', e => {
 window.addEventListener('mousedown', () => { GameState.mouse.down = true; AudioEngine.resume(); });
 window.addEventListener('mouseup', () => GameState.mouse.down = false);
 window.addEventListener('mousemove', e => {
-    GameState.mouse.x = e.clientX;
-    GameState.mouse.y = e.clientY;
+    const rect = document.querySelector('canvas').getBoundingClientRect();
+    GameState.mouse.x = e.clientX - rect.left;
+    GameState.mouse.y = e.clientY - rect.top;
 });
 
 // --- ADDED: Disable Context Menu (Right Click) ---

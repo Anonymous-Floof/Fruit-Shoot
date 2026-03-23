@@ -298,6 +298,7 @@ function animate() {
 
         if (jh.timer <= 0) {
             // Victory!
+            c.restore();
             UIManager.gameOver(true);
             return;
         }
@@ -750,6 +751,7 @@ function animate() {
                         if (proj.bounces > 0) {
                             proj.bounces--;
                             proj.pierce = 1; // Reset pierce to allow one more hit after bounce
+                            proj.hitList.clear(); // Allow re-hitting enemies after bounce
                             proj.velocity.x *= -1;
                             proj.velocity.y *= -1;
                         } else {
@@ -773,8 +775,12 @@ function animate() {
                 UIManager.triggerBossLoot();
                 GameState.runStats.bossKills++;
                 AudioEngine.playBossDeath();
-                // Clear cactus pods when Prickle Pear Tyrant dies
-                if (enemy.id === 'prickle_tyrant') GameState.cactusPods = [];
+                // Clear all boss-specific zone hazards on death
+                GameState.cactusPods = [];
+                GameState.acidPools = [];
+                GameState.berryWalls = [];
+                GameState.shadowClones = [];
+                GameState.bossAoE = [];
                 // PHASE 2: Boss death effects
                 GameState.screenShake = { intensity: 15, timer: 400 };
                 GameState.slowMotion = { multiplier: 0.3, timer: 500 };
@@ -970,7 +976,7 @@ function animate() {
         c.fillText(GameState.waveBanner.text, canvas.width / 2, canvas.height / 2 - 50);
         c.font = '24px Fredoka, sans-serif';
         c.fillStyle = '#fff';
-        c.fillText('+20% HP Restored!', canvas.width / 2, canvas.height / 2 - 10);
+        if (!GameState.mutatorEffects?.noHeal) c.fillText('+20% HP Restored!', canvas.width / 2, canvas.height / 2 - 10);
         c.restore();
     }
 
@@ -990,7 +996,7 @@ function animate() {
         c.strokeStyle = '#fff'; c.lineWidth = 2; c.shadowBlur = 0;
         c.stroke();
         c.restore();
-        beam.alpha -= 0.18; // Fast fade
+        beam.alpha = Math.max(0, beam.alpha - 0.18); // Fast fade
         if (beam.alpha <= 0) GameState.laserBeam = null;
     }
 

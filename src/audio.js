@@ -4,6 +4,18 @@ import { Settings } from './settings.js';
 const AudioEngine = {
     ctx: null,
     masterGain: null,
+    _pendingTimeouts: [],
+
+    // Tracked setTimeout — IDs are stored so cancelAll() can clear them
+    _delay(fn, ms) {
+        this._pendingTimeouts.push(setTimeout(fn, ms));
+    },
+
+    // Cancel all pending audio timeouts (call on game over / pause)
+    cancelAll() {
+        this._pendingTimeouts.forEach(clearTimeout);
+        this._pendingTimeouts = [];
+    },
 
     _init() {
         if (this.ctx) return;
@@ -180,13 +192,13 @@ const AudioEngine = {
         const notes = [523, 659, 784, 1047];
         notes.forEach((freq, i) => {
             const t = i * 90;
-            setTimeout(() => {
+            this._delay(() => {
                 this._tone('sine', freq, 0.28, 0.35);
                 this._tone('triangle', freq * 2, 0.2, 0.12);
             }, t);
         });
         // Final shimmer
-        setTimeout(() => this._tone('sine', 2093, 0.25, 0.18, 2637), 400);
+        this._delay(() => this._tone('sine', 2093, 0.25, 0.18, 2637), 400);
     },
 
     playBossSpawn() {
@@ -197,12 +209,12 @@ const AudioEngine = {
         // Ominous low drone sweep
         this._tone('sawtooth', 50, 1.5, 0.55, 38);
         this._noise(0.8, 0.22, 60, 300);
-        setTimeout(() => {
+        this._delay(() => {
             this._tone('sawtooth', 75, 0.9, 0.45, 55);
             this._tone('square', 37, 0.8, 0.3, 28, 0.05);
         }, 500);
         // Warning stab
-        setTimeout(() => this._tone('sine', 220, 0.4, 0.5, 110), 1200);
+        this._delay(() => this._tone('sine', 220, 0.4, 0.5, 110), 1200);
     },
 
     playBossDeath() {
@@ -215,12 +227,12 @@ const AudioEngine = {
         this._tone('sawtooth', 90, 1.0, 0.7, 18);
         this._tone('sine', 45, 1.0, 0.4, 20, 0.05);
         // Descending victory fanfare
-        setTimeout(() => {
+        this._delay(() => {
             const notes = [1047, 880, 784, 659, 523];
             notes.forEach((freq, i) => {
-                setTimeout(() => {
-                    this._tone('sine', freq, 0.35, 0.45);
-                    this._tone('triangle', freq * 1.5, 0.25, 0.15);
+                AudioEngine._delay(() => {
+                    AudioEngine._tone('sine', freq, 0.35, 0.45);
+                    AudioEngine._tone('triangle', freq * 1.5, 0.25, 0.15);
                 }, i * 110);
             });
         }, 300);
@@ -267,7 +279,7 @@ const AudioEngine = {
         // Threatening double-tone sting
         this._tone('sawtooth', 200, 0.3, 0.4, 100);
         this._tone('square', 300, 0.25, 0.3, 150, 0.08);
-        setTimeout(() => this._tone('triangle', 440, 0.25, 0.3), 200);
+        this._delay(() => this._tone('triangle', 440, 0.25, 0.3), 200);
     },
 
     playJuicingHour() {
@@ -279,7 +291,7 @@ const AudioEngine = {
         this._noise(0.4, 0.3, 60, 500);
         const stabs = [523, 659, 784, 880, 1047, 1319];
         stabs.forEach((freq, i) => {
-            setTimeout(() => {
+            this._delay(() => {
                 this._tone('sawtooth', freq, 0.4, 0.5, freq * 0.8);
                 this._tone('sine', freq * 2, 0.3, 0.3);
             }, i * 80);
@@ -295,7 +307,7 @@ const AudioEngine = {
         this._noise(0.2, 0.2, 1000, null);
         const melody = [523, 523, 784, 784, 1047, 1047, 1319, 1319, 1047];
         melody.forEach((freq, i) => {
-            setTimeout(() => {
+            this._delay(() => {
                 this._tone('sine', freq, 0.35, 0.4);
                 this._tone('triangle', freq * 1.5, 0.2, 0.2);
             }, i * 120);

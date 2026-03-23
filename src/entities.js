@@ -166,7 +166,7 @@ export class Player {
                         const ox = this.x + Math.cos(currentAngle) * 60;
                         const oy = this.y + Math.sin(currentAngle) * 60;
 
-                        if (Math.hypot(e.x - ox, e.y - oy) < e.radius + 8) {
+                        if (Math.hypot(e.x - ox, e.y - oy) < e.radius + 10) {
                             e.takeHit(5, 5, currentAngle);
                         }
                     }

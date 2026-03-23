@@ -114,6 +114,9 @@ export const GameState = {
             damageTaken: 0,
             weaponsUsed: new Set(),
             highCombos: 0,
+            dashCount: 0,
+            orbsCollected: 0,
+            eliteKills: 0,
         };
 
         // Mutator effects are set by engine.initGame
@@ -131,6 +134,11 @@ export const GameState = {
         this.activeCurse = null;
         this.cactusPods = [];
         this.guavaNests = [];
+        this.trailZones = [];
+        this.acidPools = [];
+        this.berryWalls = [];
+        this.shadowClones = [];
+        this.bossAoE = [];
         this.nextEventWave = 4;
         this.juicingHour = { active: false, timer: 0, bossInterval: 0 };
         this.waveStallTimer = 0;
